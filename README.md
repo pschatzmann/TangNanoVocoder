@@ -1,5 +1,10 @@
 # TangNano Vocoder
 
+[![Arduino Library](https://img.shields.io/badge/Arduino-Library-blue?logo=arduino&logoColor=white)](https://www.arduino.cc/reference/en/libraries/)
+[![ESP-IDF Component](https://img.shields.io/badge/ESP--IDF-component-blue?logo=espressif&logoColor=white)](idf_component.yml)
+[![CMake](https://img.shields.io/badge/CMake-supported-blue?logo=cmake&logoColor=white)](CMakeLists.txt)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue)](https://opensource.org/licenses/Apache-2.0)
+
 [TinyTTS](https://github.com/pschatzmann/TinyTTS) is a proof of concept: neural text to speech
 running entirely on a microcontroller. It is a small VITS-style model with 1.6M parameters,
 covering the whole pipeline:
@@ -15,7 +20,7 @@ too slow:
 |---|---|
 | ESP32-S3, optimized | about 34s |
 | ESP32-P4, optimized | about 28s |
-| Tang Nano 20K, picorv32 at 54MHz + on-chip INT8 engine, fully optimized | about 34 minutes |
+| [Sipeed Tang Nano 20K](https://wiki.sipeed.com/hardware/en/tang/tang-nano-20k/nano-20k.html), picorv32 at 54MHz + on-chip INT8 engine, fully optimized | about 34 minutes |
 
 The conclusion: **neural speech on microcontrollers is too slow**, by a factor of about 20
 on the fastest ESP32. Most of the work is the vocoder: about 440 million multiply-accumulates
@@ -23,8 +28,11 @@ per second of audio, about 90% of the model's total. The flow is most of the res
 microcontroller CPU does that in real time.
 
 This project moves the heavy part into hardware. A Sipeed Tang Nano 20K FPGA runs the flow
-and the vocoder, fed by its own DMA from SDRAM rather than by a CPU. The microcontroller
-keeps the light part:
+and the vocoder, fed by its own DMA from SDRAM rather than by a CPU.
+
+<img src="https://wiki.sipeed.com/hardware/zh/tang/tang-nano-20k/assets/nano_20k/tang_nano_20k_3920_top.png" alt="Sipeed Tang Nano 20K" width="300">
+
+The microcontroller keeps the light part:
 - **The microcontroller** (an ESP32-S3) runs TinyTTS's front end. It turns text into
   phonemes, then into the latent z_p.
 - **The FPGA** runs the flow and the vocoder, and plays the audio itself, over I2S or a PWM
