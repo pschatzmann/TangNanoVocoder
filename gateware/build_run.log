@@ -1,0 +1,201 @@
+tools: yosys=/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/bin/yosys, nextpnr-himbaechel=/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/bin/nextpnr-himbaechel, gowin_pack=/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/bin/gowin_pack, openFPGALoader=/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/bin/openFPGALoader
++ /home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/bin/yosys -q -l /home/pschatzmann/Development/Arduino/libraries/TangNanoVocoder/gateware/build/yosys.log -p read_verilog -DSYNTHESIS -DVOCODER_CLK_HZ=54000000 -DVOCODER_PLL_IDIV=0 -DVOCODER_PLL_FBDIV=1 -DVOCODER_PLL_ODIV=16 vocoder_top.v vocoder_system.v vocoder_core.v vocoder_dma.v vocoder_conv_engine.v vocoder_post.v vocoder_act_banks.v vocoder_mul.v vocoder_link.v vocoder_uart.v vocoder_spi_slave.v vocoder_audio_out.v vocoder_playback.v vocoder_sdram_arb.v sdram_ctrl.v; synth_gowin -top vocoder_top; simplemap t:$buf; opt_clean; stat; write_json /home/pschatzmann/Development/Arduino/libraries/TangNanoVocoder/gateware/build/vocoder.json
+vocoder_top.v:72: Warning: Yosys has only limited support for tri-state logic at the moment.
+Warning: Replacing memory \rq with list of registers. See vocoder_system.v:255
+Warning: Replacing memory \o_acc with list of registers. See vocoder_conv_engine.v:336
+Warning: Replacing memory \acc with list of registers. See vocoder_conv_engine.v:320
+Warning: Replacing memory \c_prod with list of registers. See vocoder_conv_engine.v:316
+Warning: Replacing memory \b_x with list of registers. See vocoder_conv_engine.v:307
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/../share/yosys/gowin/brams_map.v:215: Warning: Range [7:0] select out of bounds on signal `\PORT_A_WR_DATA': Setting 4 MSB bits to undef.
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/../share/yosys/gowin/brams_map.v:215: Warning: Range select [16:9] out of bounds on signal `\PORT_A_WR_DATA': Setting all 8 result bits to undef.
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/../share/yosys/gowin/brams_map.v:215: Warning: Range select [25:18] out of bounds on signal `\PORT_A_WR_DATA': Setting all 8 result bits to undef.
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/../share/yosys/gowin/brams_map.v:215: Warning: Range select [34:27] out of bounds on signal `\PORT_A_WR_DATA': Setting all 8 result bits to undef.
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/../share/yosys/gowin/brams_map.v:216: Warning: Range [7:0] select out of bounds on signal `\PORT_B_WR_DATA': Setting 4 MSB bits to undef.
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/../share/yosys/gowin/brams_map.v:216: Warning: Range select [16:9] out of bounds on signal `\PORT_B_WR_DATA': Setting all 8 result bits to undef.
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/../share/yosys/gowin/brams_map.v:216: Warning: Range select [25:18] out of bounds on signal `\PORT_B_WR_DATA': Setting all 8 result bits to undef.
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/../share/yosys/gowin/brams_map.v:216: Warning: Range select [34:27] out of bounds on signal `\PORT_B_WR_DATA': Setting all 8 result bits to undef.
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/../share/yosys/gowin/brams_map.v:220: Warning: Range select [23:16] out of bounds on signal `\genblk1.DOA': Setting all 8 result bits to undef.
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/../share/yosys/gowin/brams_map.v:220: Warning: Range select [31:24] out of bounds on signal `\genblk1.DOA': Setting all 8 result bits to undef.
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/../share/yosys/gowin/brams_map.v:221: Warning: Range select [23:16] out of bounds on signal `\genblk1.DOB': Setting all 8 result bits to undef.
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/../share/yosys/gowin/brams_map.v:221: Warning: Range select [31:24] out of bounds on signal `\genblk1.DOB': Setting all 8 result bits to undef.
+Warning: Feature 'write_xaiger2' is experimental.
+fix_bram_oce: 26 block RAM ports
++ /home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/bin/nextpnr-himbaechel --json /home/pschatzmann/Development/Arduino/libraries/TangNanoVocoder/gateware/build/vocoder.json --write /home/pschatzmann/Development/Arduino/libraries/TangNanoVocoder/gateware/build/vocoder_pnr.json --device GW2AR-LV18QN88C8/I7 --vopt family=GW2A-18C --vopt cst=/home/pschatzmann/Development/Arduino/libraries/TangNanoVocoder/gateware/constraints/tangnano20k.cst --freq 54.0 --seed 1 -l /home/pschatzmann/Development/Arduino/libraries/TangNanoVocoder/gateware/build/pnr.log
+Info: Pack IOBs...
+Info: Pack diff IOBs...
+Info: Pack ALUs...
+Info: Pack BSRAMs...
+Info: 	                 IOB:      43/    384    11%
+Info: 	                LUT4:   13257/  20736    63%
+Info: 	                 ALU:    4690/  15552    30%
+Info: 	                 DFF:    6127/  15552    39%
+Info: 	               BSRAM:      37/     46    80%
+Info: 	              ALU54D:       0/     24     0%
+Info: 	     MULTADDALU18X18:       0/     24     0%
+Info: 	        MULTALU18X18:       0/     24     0%
+Info: 	        MULTALU36X18:       0/     24     0%
+Info: 	           MULT36X36:       1/     12     8%
+Info: 	           MULT18X18:      19/     48    39%
+Info: 	             MULT9X9:       3/     96     3%
+Info: Max frequency for clock 'clk': 47.05 MHz (FAIL at 54.00 MHz)
+Info:     'u_sys.u_core.after_DFFRE_Q_2_D_LUT2_I1_F_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_SUM[3]' is routed using segments.
+Info:     'u_sys.u_core.tl_frame_DFFRE_Q_1_RESET_LUT2_I1_F' is routed using segments.
+Info:     'u_sys.u_sdram.b_ack_LUT4_I0_F_DFFP_Q_D_LUT4_F_I3_LUT4_I3_F_LUT4_I3_F_LUT4_I2_F' is routed using segments.
+Info:     'u_sys.lat_value_DFFE_Q_CE_LUT2_F_I1_DFFC_D_Q_DFFPE_CE_Q[2]' is routed using segments.
+Info:     'u_sys.u_core.u_engine.o_acc[6]_LUT4_I0_F[2]' is routed using segments.
+Info:     'u_sys.u_brx.rxd_LUT4_I1_1_F_DFFC_D_Q_LUT3_I0_F_LUT2_I1_F_LUT2_I1_1_F[0]' is routed using segments.
+Info:     'u_sys.u_core.w_sel_DFFE_Q_D_ALU_I0_COUT_ALU_CIN_SUM_DFF_Q_D_DFFCE_Q_D_LUT2_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT2_I1_F_DFFCE_D_Q_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT3_I1_F_LUT3_I2_F_LUT2_I1_1_I0_LUT2_I0_I1_LUT2_I1_F' is routed using segments.
+Info:     'u_sys.u_core.u_engine.blk_end_DFFRE_Q_D_ALU_SUM_I1_ALU_I1_SUM_LUT3_I2_F_DFFC_Q_D_LUT4_F_I3_LUT4_I3_F_LUT4_F_I1_DFFCE_D_Q_LUT3_I1_F_DFFCE_CE_Q_LUT4_F_1_I3[0]' is routed using segments.
+Info:     'u_sys.u_core.after_DFFRE_Q_2_D_LUT2_I1_F[2]' is routed using segments.
+Info:     'u_sys.a_addr_DFFE_Q_10_D_MUX2_LUT5_O_I0_LUT1_F_I0[3]' is routed using segments.
+Info:     'u_sys.u_link.drop_LUT4_I1_I0_LUT3_F_I2_LUT4_I1_I3_LUT4_F_I0_LUT3_I0_F_LUT2_I1_F' is routed using segments.
+Info:     'u_sys.SDRAM_A_DFFRE_Q_1_D_LUT4_F_I3[1]' is routed using segments.
+Info:     'u_sys.u_core.u_post.p1_acc_DFFE_Q_10_D_LUT4_F_I3_MUX2_LUT5_O_S0[3]' is routed using segments.
+Info:     'u_sys.u_core.u_engine.b_x[3]_DFFRE_Q_11_D_LUT3_F_I2[0]' is routed using segments.
+Info:     'u_sys.rq_if_LUT4_I1_F_MUX2_LUT5_I1_O_LUT2_I1_F_LUT2_I1_F' is routed using segments.
+Info:     'u_sys.u_core.u_post.p1_acc_DFFE_Q_32_D_LUT4_F_I3_LUT4_F_I3[2]' is routed using segments.
+Info:     'u_sys.u_core.u_engine.o_acc[9]_LUT4_I0_F[3]' is routed using segments.
+Info:     'u_sys.u_core.after_DFFRE_Q_3_D_LUT3_I2_F_LUT3_F_I2_LUT2_I1_1_F_LUT3_I2_F_LUT4_F_I2_LUT4_I3_F[1]' is routed using segments.
+Info:     'u_sys.u_link.drop_DFFSE_Q_CE_LUT3_F_I2_LUT4_F_I2_LUT3_I2_F[1]' is routed using segments.
+Info:     'u_sys.u_core.u_post.p1_acc_DFFE_Q_12_D_LUT4_F_I3_MUX2_LUT5_O_S0[2]' is routed using segments.
+Info:     'u_sys.u_core.w_sel_DFFE_Q_D_ALU_I0_COUT_ALU_CIN_SUM_DFF_Q_D_DFFCE_Q_D_LUT2_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_LUT2_I1_F_DFFCE_D_Q_ALU_I0_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT3_I1_F_LUT3_I2_1_F' is routed using segments.
+Info:     'u_sys.u_core.u_engine.n_taps_DFFE_Q_CE[1]' is routed using segments.
+Info:     'u_sys.u_core.tout_DFFE_Q_D_LUT3_F_I2_LUT3_F_I2[3]' is routed using segments.
+Info:     'u_sys.u_core.wr_left_DFFE_Q_10_D_LUT3_F_I1_LUT4_F_I1[3]' is routed using segments.
+Info:     'u_sys.u_sdram.b_ack_LUT4_I0_1_F_LUT4_F_I0[3]' is routed using segments.
+Info:     'u_sys.rb_a_DFFE_Q_CE' is routed using segments.
+Info:     'u_sys.u_sdram.rvalid_DFFR_Q_D_LUT2_I1_F' is routed using segments.
+Info:     'u_sys.u_core.l1_b0_DFFE_Q_1_D_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT3_I1_F_DFFC_D_Q_LUT3_I2_2_F_LUT3_I2_1_F[3]' is routed using segments.
+Info:     'u_sys.u_link.is_prog_DFFE_Q_D_LUT2_F_I1[0]' is routed using segments.
+Info:     'u_sys.u_core.u_engine.o_acc[9]_LUT4_I0_F[2]' is routed using segments.
+Info:     'u_sys.last_pcm_slot_DFFE_Q_CE[0]' is routed using segments.
+Info:     'u_sys.u_link.sent_slot_LUT4_I0_I1_DFFC_Q_D_LUT2_F_I1_LUT2_I1_F_DFFC_D_Q_LUT2_I0_1_F_LUT2_I0_F' is routed using segments.
+Info:     'u_sys.SDRAM_A_DFFRE_Q_10_D_LUT4_F_I3[2]' is routed using segments.
+Info:     'u_sys.u_core.in_base_DFFE_Q_10_D_ALU_SUM_I1_LUT3_F_I2[1]' is routed using segments.
+Info:     'u_sys.u_core.l1_b0_DFFE_Q_1_D_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT3_I1_F_DFFC_D_Q_LUT3_I2_3_F_LUT3_I2_F[3]' is routed using segments.
+Info:     'u_sys.u_core.l1_b0_DFFE_Q_1_D_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT3_I1_F_DFFC_D_Q_LUT3_I2_3_F_LUT3_I2_3_F[2]' is routed using segments.
+Info:     'u_sys.u_core.l1_b0_DFFE_Q_1_D_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT3_I1_F_DFFC_D_Q_LUT3_I2_3_F_LUT3_I2_1_F[2]' is routed using segments.
+Info:     'u_sys.u_core.l1_b0_DFFE_Q_1_D_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT3_I1_F_DFFC_D_Q_LUT3_I2_3_F_LUT3_I2_2_F[3]' is routed using segments.
+Info:     'u_sys.u_link.drop_DFFSE_Q_CE_LUT3_F_I2_LUT4_F_1_I3_LUT4_F_I2[1]' is routed using segments.
+Info:     'u_sys.u_core.l1_b0_DFFE_Q_1_D_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_LUT3_I1_F_DFFC_D_Q_LUT3_I2_1_F_LUT3_I2_3_F[2]' is routed using segments.
+Info:     'u_sys.lat_value_DFFE_Q_CE_LUT2_F_I1_LUT4_F_I2_LUT2_I1_F[0]' is routed using segments.
+Info:     'u_sys.u_core.u_post.p1_acc_DFFE_Q_17_D_LUT4_F_I3_MUX2_LUT5_O_S0[3]' is routed using segments.
+Info:     'u_sys.u_core.p_y_DFFE_Q_11_D_MUX2_LUT5_O_S0[2]' is routed using segments.
+Info:     'u_sys.u_core.u_dma.cfg_throttle_LUT4_I0_F' is routed using segments.
+Info:     'u_sys.rb_a_DFFE_Q_10_D_LUT3_F_I1[2]' is routed using segments.
+Info:   clk-to-q  0.23  0.23 Source u_sys.u_core.u_dma.addr_DFFE_Q_3.Q
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.I1
+Info:      logic  0.57  2.58 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  2.58 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT_CIN (26,7) -> (26,7)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  2.61 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  2.61 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_CIN_ALU_COUT_CIN (26,7) -> (26,7)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_CIN_ALU_COUT.CIN
+Info:      logic  0.04  2.64 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_CIN_ALU_COUT.COUT
+Info:    routing  0.00  2.64 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_CIN (26,7) -> (27,7)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM.CIN
+Info:      logic  0.04  2.68 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM.COUT
+Info:    routing  0.00  2.68 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_COUT (27,7) -> (27,7)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_COUT_ALU_CIN.CIN
+Info:      logic  0.04  2.71 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_COUT_ALU_CIN.COUT
+Info:    routing  0.00  2.71 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_COUT_ALU_CIN_COUT (27,7) -> (27,7)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN.CIN
+Info:      logic  0.47  3.18 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN.SUM
+Info:    routing  0.40  3.59 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_SUM_COUT_ALU_CIN_COUT_ALU_CIN_SUM[1] (27,7) -> (27,6)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN.I1
+Info:      logic  0.57  4.16 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN.COUT
+Info:    routing  0.00  4.16 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT (27,6) -> (27,6)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.CIN
+Info:      logic  0.04  4.19 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.COUT
+Info:    routing  0.00  4.19 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT (27,6) -> (27,6)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.CIN
+Info:      logic  0.04  4.23 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.COUT
+Info:    routing  0.00  4.23 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT (27,6) -> (27,6)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.CIN
+Info:      logic  0.04  4.26 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.COUT
+Info:    routing  0.00  4.26 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT (27,6) -> (28,6)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.CIN
+Info:      logic  0.04  4.30 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.COUT
+Info:    routing  0.00  4.30 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT (28,6) -> (28,6)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.CIN
+Info:      logic  0.04  4.33 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.COUT
+Info:    routing  0.00  4.33 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT (28,6) -> (28,6)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.CIN
+Info:      logic  0.04  4.37 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.COUT
+Info:    routing  0.00  4.37 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT (28,6) -> (28,6)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.CIN
+Info:      logic  0.04  4.40 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.COUT
+Info:    routing  0.00  4.40 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT (28,6) -> (28,6)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.CIN
+Info:      logic  0.04  4.44 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN.COUT
+Info:    routing  0.00  4.44 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_TAIL_ALULC (28,6) -> (28,6)
+Info:                          Sink u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_TAIL_ALULC.CIN
+Info:      logic  0.47  4.91 Source u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1_ALU_I1_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_COUT_ALU_CIN_TAIL_ALULC.SUM
+Info:    routing  0.62  5.52 Net u_sys.c_len_DFFE_Q_6_D_LUT3_F_I1_LUT3_F_I1[2] (28,6) -> (26,8)
+Info:                          Sink u_sys.c_len_DFFE_Q_1_D_LUT4_F.I2
+Info:      logic  0.46  5.98 Source u_sys.c_len_DFFE_Q_1_D_LUT4_F.F
+Info:    routing  0.64  6.62 Net u_sys.c_len_DFFE_Q_1_D (26,8) -> (23,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.I1
+Info:      logic  0.57  7.19 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.19 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (23,7) -> (23,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.23 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.23 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (23,7) -> (23,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.26 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.26 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (23,7) -> (23,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.30 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.30 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (23,7) -> (23,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.33 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.33 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (23,7) -> (24,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.37 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.37 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (24,7) -> (24,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.40 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.40 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (24,7) -> (24,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.44 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.44 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (24,7) -> (24,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.47 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.47 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (24,7) -> (24,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.51 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.51 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (24,7) -> (24,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.54 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.54 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (24,7) -> (25,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.58 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.58 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (25,7) -> (25,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.61 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.61 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT_CIN (25,7) -> (25,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.65 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.65 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT_CIN (25,7) -> (25,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT.CIN
+Info:      logic  0.04  7.68 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN_ALU_COUT.COUT
+Info:    routing  0.00  7.68 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_CIN (25,7) -> (25,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT.CIN
+Info:      logic  0.04  7.72 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT.COUT
+Info:    routing  0.00  7.72 Net u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_TAIL_ALULC (25,7) -> (25,7)
+Info:                          Sink u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_TAIL_ALULC.CIN
+Info:      logic  0.47  8.19 Source u_sys.u_sdram.b_ack_LUT3_I0_F_ALU_COUT_TAIL_ALULC.SUM
+Info:                          Sink u_sys.u_sdram.b_ack_LUT4_I0_F_DFFP_Q_D_LUT4_F_I3_LUT4_I3_F_LUT4_I3_F_LUT4_I2.I3
+Info:      logic  0.37  9.30 Source u_sys.u_sdram.b_ack_LUT4_I0_F_DFFP_Q_D_LUT4_F_I3_LUT4_I3_F_LUT4_I3_F_LUT4_I2.F
+Info:    routing  2.07  11.37 Net u_sys.u_sdram.b_ack_LUT4_I0_F_DFFP_Q_D_LUT4_F_I3_LUT4_I3_F_LUT4_I3_F_LUT4_I2_F (29,11) -> (53,19)
+Info:                          Sink u_sys.u_core.u_dma.addr_DFFE_Q_6.CE
+Info:      setup  0.04  11.40 Source u_sys.u_core.u_dma.addr_DFFE_Q_6.CE
+Info: Max frequency for clock 'clk': 87.70 MHz (PASS at 54.00 MHz)
++ /home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/bin/gowin_pack -d GW2A-18C -o /home/pschatzmann/Development/Arduino/libraries/TangNanoVocoder/gateware/build/vocoder.fs /home/pschatzmann/Development/Arduino/libraries/TangNanoVocoder/gateware/build/vocoder_pnr.json
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/python3.11/site-packages/apycula/bitmatrix.py:60: UserWarning: Numpy is not available, performance will be degraded.
+  warnings.warn("Numpy is not available, performance will be degraded.")
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/python3.11/site-packages/apycula/chipdb.py:261: UserWarning: Msgspec is not available, performance will be degraded.
+  warnings.warn("Msgspec is not available, performance will be degraded.")
+/home/pschatzmann/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/2026.9.25/lib/python3.11/site-packages/apycula/crc16.py:19: UserWarning: fastcrc is not available, performance will be degraded.
+  warnings.warn("fastcrc is not available, performance will be degraded.")
+bitstream: /home/pschatzmann/Development/Arduino/libraries/TangNanoVocoder/gateware/build/vocoder.fs

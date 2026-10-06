@@ -1,0 +1,6 @@
+## ESP-IDF component manifest: TangNanoVocoder is header only (src/).
+## TinyTTS (https://github.com/pschatzmann/TinyTTS) is needed for
+## TangNanoVocoderTTS.h - add it as a component too.
+version: "0.1.0"
+description: Client for the Tang Nano 20K TinyTTS vocoder (link protocol, SPI/UART, TinyTTS latents)
+url: https://github.com/pschatzmann/TangNanoVocoder

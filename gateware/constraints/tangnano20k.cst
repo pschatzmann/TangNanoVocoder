@@ -1,0 +1,70 @@
+// Tang Nano 20K (GW2AR-LV18QN88C8/I7) pins for the vocoder's top level.
+//
+// Same pins and settings as TangNanoFaust (gateware/constraints/tangnano20k.cst
+// there), so a host MCU is wired the same way for both: clock, button, LEDs
+// and I2S follow arduino-tangnano20k's picorv32_20k.cst (verified on real
+// hardware), SPI is on header GPIO4, GPIO5, GPIO8, GPIO9 (the pins NanoTangAI
+// uses), UARTs as in TangNanoFaust. See docs/gateware.md, "Pins".
+//
+// The embedded SDRAM needs no entries: its ports (O_sdram_*, IO_sdram_dq)
+// bind to the package's internal SDRAM by name.
+
+IO_LOC "clk_27m" 4;
+IO_PORT "clk_27m" IO_TYPE=LVCMOS33 PULL_MODE=NONE BANK_VCCIO=3.3;
+
+// S1 button, active high (reads 1 while pressed)
+IO_LOC "reset_button" 88;
+IO_PORT "reset_button" IO_TYPE=LVCMOS33 PULL_MODE=NONE PCI_CLAMP=OFF BANK_VCCIO=3.3;
+
+// Onboard LEDs, active low
+IO_LOC "leds[0]" 15;
+IO_PORT "leds[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "leds[1]" 16;
+IO_PORT "leds[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "leds[2]" 17;
+IO_PORT "leds[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "leds[3]" 18;
+IO_PORT "leds[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "leds[4]" 19;
+IO_PORT "leds[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "leds[5]" 20;
+IO_PORT "leds[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+
+// Onboard MAX98357A I2S amplifier
+IO_LOC "i2s_pa_en" 51;
+IO_PORT "i2s_pa_en" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC "i2s_din" 54;
+IO_PORT "i2s_din" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC "i2s_ws" 55;
+IO_PORT "i2s_ws" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC "i2s_bclk" 56;
+IO_PORT "i2s_bclk" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+
+// Audio on a plain pin (sigma-delta, needs an RC low-pass filter): header
+// GPIO pin 76, free in TangNanoFaust's pinout too
+IO_LOC "pwm_out" 76;
+IO_PORT "pwm_out" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+
+// SPI link to the host MCU (header GPIO4, GPIO5, GPIO8, GPIO9), mode 0.
+// The top level tri-states MISO while CS is high.
+IO_LOC "spi_sclk" 27;
+IO_PORT "spi_sclk" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC "spi_mosi" 28;
+IO_PORT "spi_mosi" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC "spi_miso" 29;
+IO_PORT "spi_miso" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC "spi_cs_n" 30;
+IO_PORT "spi_cs_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// UART link. The onboard BL616 USB-UART bridge (the board's second USB
+// serial port; pins per Sipeed's schematic, as used by arduino-tangnano20k's
+// Serial) ...
+IO_LOC "usb_uart_tx" 69;
+IO_PORT "usb_uart_tx" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "usb_uart_rx" 70;
+IO_PORT "usb_uart_rx" IO_TYPE=LVCMOS33 PULL_MODE=UP PCI_CLAMP=OFF BANK_VCCIO=3.3;
+// ... and a header UART for an MCU (pulled up: idle when unconnected)
+IO_LOC "uart_rx" 25;
+IO_PORT "uart_rx" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC "uart_tx" 26;
+IO_PORT "uart_tx" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
