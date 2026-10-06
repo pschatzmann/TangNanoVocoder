@@ -5,9 +5,8 @@
 [![CMake](https://img.shields.io/badge/CMake-supported-blue?logo=cmake&logoColor=white)](CMakeLists.txt)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue)](https://opensource.org/licenses/Apache-2.0)
 
-[TinyTTS](https://github.com/pschatzmann/TinyTTS) is a proof of concept: __neural text to speech__
-running entirely on a microcontroller. It is a small VITS-style model with 1.6M parameters,
-covering the whole pipeline. The conclusion: **neural speech on microcontrollers is too slow**, by a factor of about 20
+[TinyTTS](https://github.com/pschatzmann/TinyTTS) is a proof of concept of a __Neural Text to Speech__ functionality running entirely on a microcontroller. It is a small VITS-style model with 1.6M parameters,
+covering the whole pipeline. The conclusion: **it is working but it is  too slow**, by a factor of about 20
 on the fastest ESP32. Most of the work is the vocoder: about 440 million multiply-accumulates
 per second of audio, about 90% of the model's total. The flow is most of the rest. No
 microcontroller CPU does that in real time.
