@@ -1,0 +1,14 @@
+# Name,   Type, SubType, Offset,  Size,     Flags
+#
+# The sketch embeds about 4.4MB of data as flash const arrays: the FPGA's
+# program image (1.6MB, default_vocoder_image.h), TinyTTS's front-end
+# weights (0.66MB, default_frontend_weights.h), its slim CMU dictionary
+# (1.1MB) and G2P model (1.0MB). With the code it is about 4.7MB - more than
+# the largest built-in ESP32-S3 partition scheme's 3MB app partition, hence
+# this table: a 6MB app partition, which fits modules with 8MB flash or more
+# (e.g. N8R8, N16R8). With less flash, load the data from LittleFS/SD
+# instead (TangNanoVocoder::setWeights(File&) etc.; the program image read
+# into PSRAM for setImage()).
+nvs,      data, nvs,     0x9000,  0x5000,
+phy_init, data, phy,     0xf000,  0x1000,
+factory,  app,  factory, 0x10000, 0x600000,

@@ -46,7 +46,16 @@ module vocoder_top (
     output wire        O_sdram_cas_n,
     output wire        O_sdram_clk,
     output wire        O_sdram_cke,
-    output wire [3:0]  O_sdram_dqm
+    output wire [3:0]  O_sdram_dqm,
+
+    // onboard SPI NOR flash (the bitstream's, too): the program image at
+    // power-up (vocoder_flash_boot.v)
+    output wire        flash_cs_n,
+    output wire        flash_sclk,
+    output wire        flash_mosi,
+    input  wire        flash_miso,
+    output wire        flash_wp_n,
+    output wire        flash_hold_n
 );
   wire clk, clk_sdram, locked;
   vocoder_pll u_pll (.clock_in(clk_27m), .clock_out(clk), .clock_p180(clk_sdram), .locked(locked));
@@ -67,7 +76,10 @@ module vocoder_top (
       .i2s_bclk(i2s_bclk), .i2s_ws(i2s_ws), .i2s_din(i2s_din), .pwm_out(pwm_out), .state_leds(state),
       .SDRAM_DQ(IO_sdram_dq), .SDRAM_A(O_sdram_addr), .SDRAM_BA(O_sdram_ba), .SDRAM_nCS(O_sdram_cs_n),
       .SDRAM_nWE(O_sdram_wen_n), .SDRAM_nRAS(O_sdram_ras_n), .SDRAM_nCAS(O_sdram_cas_n),
-      .SDRAM_CLK(O_sdram_clk), .SDRAM_CKE(O_sdram_cke), .SDRAM_DQM(O_sdram_dqm));
+      .SDRAM_CLK(O_sdram_clk), .SDRAM_CKE(O_sdram_cke), .SDRAM_DQM(O_sdram_dqm),
+      .flash_cs_n(flash_cs_n), .flash_sclk(flash_sclk), .flash_mosi(flash_mosi), .flash_miso(flash_miso));
+  assign flash_wp_n = 1'b1;
+  assign flash_hold_n = 1'b1;
 
   assign spi_miso = spi_cs_n ? 1'bz : miso;
   assign i2s_pa_en = 1'b1;

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Executors.h"
+#include "FlowOps.h"
 #include "HwImage.h"
 
 namespace tnv {
@@ -25,6 +26,13 @@ class HwSim {
     if (image.size() < (size_t)HwImage::kHeaderWords || image[0] != HwImage::kMagic)
       throw std::runtime_error("not a TNVH image");
     std::copy(image.begin(), image.end(), mem_.begin());
+    uint32_t fi = image[13];  // flow: tables of LayerNorm and softmax
+    if (fi & 1) {
+      tables_.exp_bits = (int)(fi >> 8 & 0xFF);
+      tables_.rsqrt_bits = (int)(fi >> 16 & 0xFF);
+      tables_.score_frac = (int)(fi >> 24 & 0xFF);
+      tables_.init();
+    }
   }
 
   /// Estimated clock cycles of the last run(), following vocoder_core.v's
@@ -38,6 +46,15 @@ class HwSim {
   };
   const Cycles& cycles() const { return cyc_; }
   static constexpr int kBurstOverhead = 13;
+
+  /// values of a buffer after run(): [channel][frame]
+  std::vector<int16_t> readPlanes(uint32_t base, uint32_t plane, int C, int T) const {
+    std::vector<int16_t> v;
+    for (int c = 0; c < C; c++)
+      for (int t = 0; t < T; t++) v.push_back(get(base + (uint32_t)c * plane, t));
+    return v;
+  }
+  const std::vector<uint32_t>& memory() const { return mem_; }
 
   /// zq: quantized latent [frames][32], as the link delivers it.
   std::vector<int16_t> run(const std::vector<int32_t>& zq, int frames) {
@@ -87,11 +104,15 @@ class HwSim {
   }
 
   void runOp(const uint32_t* d, int frames) {
+    int op_class = d[0] >> 6 & 3;
+    if (op_class == 1) return runLayerNorm(d, frames);
+    if (op_class == 2) return runAttention(d, frames);
     bool transposed = d[0] & 1, residual = d[0] >> 2 & 1, output = d[0] >> 3 & 1;
     int cin = 1 << (d[0] >> 8 & 7), s = d[0] >> 12 & 7, k = d[0] >> 16 & 31, dil = d[0] >> 24 & 7;
     int cout = d[1] & 0xFF, pad = d[1] >> 8 & 63;
     int32_t lr_mul = (int32_t)(d[1] >> 16);
     uint32_t in_base = d[2], in_plane = d[3], out_base = d[4], out_plane = d[5], res_base = d[6], res_plane = d[7];
+    // latent slot 0 is the one run() uses: the slot flags add nothing here
     uint32_t wbase = d[8], pbase = d[9];
     int tin = frames * (int)(d[10] & 0xFFFF), tout = frames * (int)(d[10] >> 16);
     int group = (int)(d[11] & 0xFFFF), tile = (int)(d[11] >> 16);
@@ -176,7 +197,59 @@ class HwSim {
     }
   }
 
+  /// gather [T][C] from channel planes, and back
+  std::vector<int32_t> gather(uint32_t base, uint32_t plane, int C, int T) const {
+    std::vector<int32_t> x((size_t)T * C);
+    for (int c = 0; c < C; c++)
+      for (int t = 0; t < T; t++) x[(size_t)t * C + c] = get(base + (uint32_t)c * plane, t);
+    return x;
+  }
+  void scatter(uint32_t base, uint32_t plane, int C, int T, const std::vector<int32_t>& x) {
+    for (int c = 0; c < C; c++)
+      for (int t = 0; t < T; t++) put(base + (uint32_t)c * plane, t, x[(size_t)t * C + c]);
+  }
+
+  void runLayerNorm(const uint32_t* d, int frames) {
+    int C = (int)(d[1] & 0xFF);
+    NormParams n;
+    n.gs = (int)(d[1] >> 8 & 63);
+    n.eps = d[11];
+    for (int c = 0; c < C; c++) {
+      n.g.push_back((int32_t)mem_[d[9] + 2 * c]);
+      n.b.push_back((int32_t)mem_[d[9] + 2 * c + 1]);
+    }
+    std::vector<int32_t> x = gather(d[2], d[3], C, frames);
+    for (int t = 0; t < frames; t++) flowops::layerNormFrame(x.data() + (size_t)t * C, n, tables_, nullptr);
+    scatter(d[4], d[5], C, frames, x);
+    cyc_.fixed += 100.0 * frames;  // three passes over 32 channels per frame
+    cyc_.dma += 4.0 * frames * C / 2;
+  }
+
+  void runAttention(const uint32_t* d, int frames) {
+    AttnParams a;
+    a.heads = (int)(d[1] & 0xFF);
+    a.head_dim = (int)(d[1] >> 8 & 0xFF);
+    a.window = (int)(d[1] >> 16 & 0xFF);
+    a.score_mult = (int32_t)(d[11] & 0xFFFF);
+    a.score_shift = (int8_t)(d[11] >> 16 & 0xFF);
+    a.merge_mult = (int32_t)(d[12] & 0xFFFF);
+    a.merge_shift = (int8_t)(d[12] >> 16 & 0xFF);
+    int rel = (2 * a.window + 1) * a.head_dim;
+    for (int n = 0; n < rel; n++) a.rel_k.push_back(weight(d[8], (uint32_t)n));
+    for (int n = 0; n < rel; n++) a.rel_v.push_back(weight(d[8] + (uint32_t)rel / 2, (uint32_t)n));
+    int C = a.heads * a.head_dim;
+    std::vector<int32_t> q = gather(d[2], d[3], C, frames), k = gather(d[6], d[3], C, frames),
+                         v = gather(d[7], d[3], C, frames), m((size_t)frames * C);
+    flowops::attention(q.data(), k.data(), v.data(), frames, C, a, tables_, m.data(), nullptr);
+    scatter(d[4], d[5], C, frames, m);
+    // per head and row (vocoder_flow_unit.v, 4 lanes): scores 4 T, exp T, weighted sum 4 T, plus
+    // q, relative terms, division and requantization
+    cyc_.engine += (double)a.heads * frames * (9.0 * frames + 200);
+    cyc_.dma += 4.0 * frames * C / 2;
+  }
+
   std::vector<uint32_t> mem_;
+  FlowTables tables_;
   Cycles cyc_;
 };
 

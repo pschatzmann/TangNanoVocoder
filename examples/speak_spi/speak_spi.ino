@@ -1,46 +1,44 @@
 /**
- * Text to speech with TinyTTS on an ESP32-S3 and the vocoder on a Tang Nano
- * 20K, linked over SPI. The FPGA plays the audio on its onboard I2S
- * amplifier (or its PWM pin).
+ * Text to speech with TinyTTS's front end on an ESP32-S3 and the flow and
+ * vocoder on a Tang Nano 20K, linked over SPI. Speaks two sentences in a
+ * loop; the FPGA plays them on its onboard I2S amplifier (or its PWM pin).
  *
  * Wiring (Tang Nano 20K header pins, as in TangNanoFaust; 3.3V logic, common GND):
  *   ESP32 SCK  -> FPGA pin 27     ESP32 MOSI -> FPGA pin 28
  *   ESP32 MISO <- FPGA pin 29     ESP32 CS   -> FPGA pin 30
- * The FPGA runs gateware/build/vocoder.fs (gateware/build.py --flash).
  *
- * Needs the TinyTTS library and a board with PSRAM; the data headers make
- * the sketch large, so use a partition scheme with a big app partition (see
- * TinyTTS's examples/tts_i2s_output, which this follows).
+ * The FPGA needs, once from a PC (docs/getting-started.md):
+ *   gateware/build.py --gowin --flash        the bitstream, in its flash
+ *   tools/tnv.py PORT flash-image            its program image, in its flash
+ * It then loads the program at every power-up by itself. (examples/speak_upload
+ * uploads it from the sketch instead.)
+ *
+ * Needs the TinyTTS library, an ESP32-S3 with PSRAM, and Tools > Partition
+ * Scheme: Huge APP (3MB No OTA/1MB SPIFFS) - the sketch is about 3.1MB.
  */
 #include <SPI.h>
 
 #include "TangNanoVocoderTTS.h"
-#include "TangNanoVocoder/data/default_vocoder_image.h"
+#include "TangNanoVocoder/data/default_frontend_weights.h"
 #include "TinyTTS/data/default_cmudict_slim_data.h"
 #include "TinyTTS/data/default_dictionary_model_data.h"
-#include "TinyTTS/data/default_weights_data.h"
 
 const int kSCK = 12, kMISO = 13, kMOSI = 11, kCS = 10;  // adjust to your board
 
-tinytts::TinyTTS tts;
 tnv::SPITransport vocoder_link(SPI, kCS, 4000000);
-tnv::TangNanoVocoder vocoder(tts);
+tnv::TangNanoVocoder vocoder;
 
 void setup() {
   Serial.begin(115200);
   delay(2000);
   SPI.begin(kSCK, kMISO, kMOSI, kCS);
 
-  tts.setWeights(default_weights, default_weights_len);
-  tts.setDictionary(default_cmudict_slim, default_cmudict_slim_len);
-  tts.setDictionaryModel(default_dictionary_model, default_dictionary_model_len);
-  vocoder.setImage(default_vocoder_image, default_vocoder_image_len);
-
-  Serial.println("Starting: TinyTTS, then the FPGA (program upload if needed)...");
-  if (!vocoder.begin(vocoder_link, [](size_t done, size_t total) {
-        if (done == total || done % (64 * 1024) < 1024) Serial.printf("  upload %u%%\n", (unsigned)(100 * done / total));
-      })) {
-    Serial.println("Vocoder not found or upload failed - check wiring and bitstream");
+  vocoder.setWeights(default_frontend_weights, default_frontend_weights_len);
+  vocoder.setDictionary(default_cmudict_slim, default_cmudict_slim_len);
+  vocoder.setDictionaryModel(default_dictionary_model, default_dictionary_model_len);
+  if (!vocoder.begin(vocoder_link)) {
+    Serial.printf("Vocoder start failed: %s - check wiring, bitstream and program in the FPGA's flash\n",
+                  vocoder.error());
     while (true) delay(1000);
   }
   Serial.println("Ready");
@@ -54,7 +52,7 @@ void loop() {
       Serial.println("speak failed");
       continue;
     }
-    Serial.printf("\"%s\": %d frames (%.2fs of audio), latent made and sent in %lu ms\n", s, vocoder.lastFrames(),
+    Serial.printf("\"%s\": %d frames (%.2fs of audio), z_p made and sent in %lu ms\n", s, vocoder.lastFrames(),
                   vocoder.lastFrames() * 512 / 44100.0f, (unsigned long)(millis() - t0));
   }
   vocoder.waitDone();

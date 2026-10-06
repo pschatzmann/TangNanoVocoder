@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""Builds the vocoder bitstream with the open-source flow:
-yosys -> nextpnr-himbaechel -> gowin_pack.
+"""Builds the vocoder bitstream, with the open-source flow (yosys ->
+nextpnr-himbaechel -> gowin_pack) or, with --gowin, Gowin's own tools.
 
-  gateware/build.py [--mhz 54|64.8] [--seed N] [--load] [--flash]
+  gateware/build.py [--gowin] [--mhz 54|64.8] [--seed N] [--load] [--flash]
 
-Output: gateware/build/vocoder.fs, plus nextpnr's log (utilization and
-timing) in gateware/build/pnr.log. --load writes the bitstream into the
-FPGA's SRAM with openFPGALoader (lost at power-off), --flash into its flash.
+Output: gateware/build/vocoder.fs, plus the log with utilization and timing
+(build/pnr.log, or build/gowin/impl/pnr/ for --gowin). --load writes the
+bitstream into the FPGA's SRAM with openFPGALoader (lost at power-off),
+--flash into its flash.
+
+The design with the flow needs --gowin: Gowin's synthesis maps it to about
+80% of the GW2AR-18's logic, yosys + nextpnr to more than 100% (yosys's
+mapping for Gowin is much less compact). The vocoder alone fits either way.
+Gowin's IDE is looked for in $GOWIN_HOME, else ~/gowin (gw_sh in IDE/bin).
 """
 import argparse
 import json
@@ -25,7 +31,9 @@ DEVICE = "GW2AR-LV18QN88C8/I7"
 FAMILY = "GW2A-18C"
 
 SOURCES = [
-    "vocoder_top.v", "vocoder_system.v", "vocoder_core.v", "vocoder_dma.v", "vocoder_conv_engine.v",
+    "vocoder_top.v", "vocoder_system.v", "vocoder_core.v", "vocoder_flow_unit.v", "vocoder_dma.v",
+    "vocoder_flash_boot.v",
+    "vocoder_conv_engine.v",
     "vocoder_post.v", "vocoder_act_banks.v", "vocoder_mul.v", "vocoder_link.v", "vocoder_uart.v",
     "vocoder_spi_slave.v", "vocoder_audio_out.v", "vocoder_playback.v", "vocoder_sdram_arb.v", "sdram_ctrl.v",
 ]
@@ -73,6 +81,61 @@ def toolchain():
     return {t: shutil.which(t) or t for t in ("yosys", "nextpnr-himbaechel", "gowin_pack", "openFPGALoader")}
 
 
+def gowin_build(a):
+    """Synthesis, place and route with Gowin's gw_sh (batch mode)."""
+    home = Path(os.environ.get("GOWIN_HOME", Path.home() / "gowin"))
+    ide = home / "IDE"
+    gw_sh = ide / "bin" / "gw_sh"
+    if not gw_sh.exists():
+        sys.exit(f"gw_sh not found in {ide}/bin (set GOWIN_HOME)")
+    hz, idiv, fbdiv, odiv = PLL[a.mhz]
+    out = BUILD / "gowin"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "defines.v").write_text(
+        "`define SYNTHESIS\n"
+        f"`define VOCODER_CLK_HZ {hz}\n`define VOCODER_PLL_IDIV {idiv}\n"
+        f"`define VOCODER_PLL_FBDIV {fbdiv}\n`define VOCODER_PLL_ODIV {odiv}\n")
+    for hexfile in SRC.glob("*.hex"):  # $readmemh paths are relative to the run directory
+        shutil.copy(hexfile, out)
+    tcl = [f"set_device {DEVICE} -name GW2AR-18C", f"add_file {out / 'defines.v'}"]
+    tcl += [f"add_file {SRC / f}" for f in SOURCES]
+    tcl += [f"add_file {CST}", "set_option -top_module vocoder_top", "set_option -verilog_std sysv2017",
+            "set_option -output_base_name vocoder", "set_option -use_mspi_as_gpio 1",
+            "set_option -use_sspi_as_gpio 1", "set_option -use_ready_as_gpio 1", "set_option -use_done_as_gpio 1",
+            "set_option -use_cpu_as_gpio 1", "run all"]
+    (out / "run.tcl").write_text("\n".join(tcl) + "\n")
+    # the IDE's own Qt and libraries; the system's freetype (the bundled one
+    # clashes with the system's fontconfig); no GL
+    env = dict(os.environ, QT_XCB_GL_INTEGRATION="none", LIBGL_ALWAYS_SOFTWARE="1",
+               QT_PLUGIN_PATH=str(ide / "plugins"), LD_LIBRARY_PATH=str(ide / "lib"))
+    ft = sorted(Path("/lib/x86_64-linux-gnu").glob("libfreetype.so.6*"))
+    if ft:
+        env["LD_PRELOAD"] = str(ft[0])
+    log = out / "gw.log"
+    print(f"+ {gw_sh} run.tcl (log: {log})", flush=True)
+    with open(log, "w") as f:
+        r = subprocess.run([str(gw_sh), "run.tcl"], cwd=out, env=env, stdout=f, stderr=subprocess.STDOUT)
+    text = log.read_text(errors="ignore")
+    fs = out / "impl" / "pnr" / "vocoder.fs"
+    if r.returncode != 0 or "ERROR" in text or not fs.exists():
+        print("\n".join(l for l in text.splitlines() if "ERROR" in l)[:4000])
+        sys.exit(f"Gowin build failed, see {log}")
+    rpt = (out / "impl" / "pnr" / "vocoder.rpt.txt").read_text(errors="ignore")
+    for line in rpt.splitlines():
+        if re.match(r"\s+(Logic|Register|CLS|BSRAM|DSP)\s+\|", line):
+            print(line.strip())
+    tr = (out / "impl" / "pnr" / "vocoder_tr_content.html").read_text(errors="ignore")
+    tr = re.sub(r"\|[\s|]*", "|", re.sub(r"<[^>]+>", "|", tr))
+    m = re.search(r"CLKOUT\.default_gen_clk\|([\d.]+)\(MHz\)\|([\d.]+)\(MHz\)", tr)
+    if m:
+        ok = float(m.group(2)) >= float(m.group(1))
+        print(f"Fmax {m.group(2)} MHz for {m.group(1)} MHz: {'PASS' if ok else 'FAIL'}")
+    dst = BUILD / "vocoder.fs"
+    dst.unlink(missing_ok=True)
+    shutil.copyfile(fs, dst)  # (Gowin writes it read-only)
+    print(f"bitstream: {dst}")
+
+
 def run(cmd, **kw):
     print("+ " + " ".join(str(c) for c in cmd), flush=True)
     return subprocess.run(cmd, check=True, **kw)
@@ -84,9 +147,16 @@ def main():
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--load", action="store_true", help="load into the FPGA's SRAM")
     ap.add_argument("--flash", action="store_true", help="write to the FPGA's flash")
+    ap.add_argument("--gowin", action="store_true", help="Gowin's synthesis, place and route (gw_sh)")
     a = ap.parse_args()
 
     tools = toolchain()
+    if a.gowin:
+        BUILD.mkdir(exist_ok=True)
+        gowin_build(a)
+        if a.load or a.flash:
+            run([tools["openFPGALoader"], "-b", "tangnano20k"] + (["-f"] if a.flash else []) + [str(BUILD / "vocoder.fs")])
+        return
     print("tools: " + ", ".join(f"{k}={v}" for k, v in tools.items()))
     hz, idiv, fbdiv, odiv = PLL[a.mhz]
     BUILD.mkdir(exist_ok=True)

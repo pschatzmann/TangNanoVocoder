@@ -28,14 +28,16 @@ module tb_gate;
 `ifdef GATE
   vocoder_system dut (
 `else
-  vocoder_system #(.CLK_HZ(CLK_HZ), .BAUD(BAUD), .INIT_US(2), .TANH_FILE(`TANH_FILE)) dut (
+  vocoder_system #(.CLK_HZ(CLK_HZ), .BAUD(BAUD), .INIT_US(2), .FLASH_BOOT(0), .TANH_FILE(`TANH_FILE), .EXP_FILE(`EXP_FILE),
+                   .RSQRT_FILE(`RSQRT_FILE)) dut (
 `endif
       .clk(clk), .clk_sdram(~clk), .rst_n(rst_n),
       .spi_sclk(1'b0), .spi_mosi(1'b0), .spi_cs_n(1'b1), .spi_miso(miso),
       .uart_rx(1'b1), .uart_tx(utx), .usb_uart_rx(usb_rx), .usb_uart_tx(usb_tx),
       .i2s_bclk(bclk), .i2s_ws(ws), .i2s_din(din), .pwm_out(pwm), .state_leds(leds),
       .SDRAM_DQ(dq), .SDRAM_A(sa), .SDRAM_BA(ba), .SDRAM_nCS(ncs), .SDRAM_nWE(nwe), .SDRAM_nRAS(nras),
-      .SDRAM_nCAS(ncas), .SDRAM_CLK(sclk_sd), .SDRAM_CKE(cke), .SDRAM_DQM(dqm));
+      .SDRAM_nCAS(ncas), .SDRAM_CLK(sclk_sd), .SDRAM_CKE(cke), .SDRAM_DQM(dqm),
+      .flash_cs_n(), .flash_sclk(), .flash_mosi(), .flash_miso(1'b1));  // flash boot off (FLASH_BOOT 0)
 
   sdram_model #(.CAS(2), .MEM_AW(21)) u_mem (
       .SDRAM_DQ(dq), .SDRAM_A(sa), .SDRAM_BA(ba), .SDRAM_nCS(ncs), .SDRAM_nWE(nwe), .SDRAM_nRAS(nras),
@@ -76,7 +78,7 @@ module tb_gate;
     end
   endtask
 
-  reg [31:0] image [0:(1 << 18) - 1];
+  reg [31:0] image [0:(1 << 20) - 1];
   reg [7:0]  sentence [0:4095];
   reg [15:0] expect_v [0:65535];
   integer base, plane, chans, frames, n_sentence, i, c, t, fd, r, errors = 0;
@@ -84,20 +86,20 @@ module tb_gate;
   reg [31:0] w;
   reg [15:0] got;
   initial begin
-    $readmemh("build/gate/image.hex", image);
-    fd = $fopen("build/gate/sentence.hex", "r");
+    $readmemh({`GATE_DIR, "/image.hex"}, image);
+    fd = $fopen({`GATE_DIR, "/sentence.hex"}, "r");
     n_sentence = 0;
     while (!$feof(fd)) begin
       r = $fscanf(fd, "%h\n", sentence[n_sentence]);
       if (r == 1) n_sentence = n_sentence + 1;
     end
     $fclose(fd);
-    fd = $fopen("build/gate/expect.hex", "r");
+    fd = $fopen({`GATE_DIR, "/expect.hex"}, "r");
     r = $fscanf(fd, "%d %d %d %d\n", base, plane, chans, frames);
     for (i = 0; i < chans * frames; i = i + 1) r = $fscanf(fd, "%h\n", expect_v[i]);
     $fclose(fd);
     for (i = 0; i < (1 << 21); i = i + 1) u_mem.mem[i] = 32'd0;
-    for (i = 0; i < (1 << 18); i = i + 1) if (image[i] !== 32'bx) u_mem.mem[i] = image[i];
+    for (i = 0; i < (1 << 20); i = i + 1) if (image[i] !== 32'bx) u_mem.mem[i] = image[i];
 
     repeat (10) @(posedge clk);
     rst_n = 1'b1;

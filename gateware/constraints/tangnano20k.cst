@@ -68,3 +68,20 @@ IO_LOC "uart_rx" 25;
 IO_PORT "uart_rx" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 IO_LOC "uart_tx" 26;
 IO_PORT "uart_tx" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+
+// Onboard SPI NOR flash: the configuration engine boots the bitstream from
+// it; afterwards these MSPI pins are user I/O (Gowin option use_mspi_as_gpio)
+// and vocoder_flash_boot.v reads the program image from it. Pins as verified
+// by arduino-tangnano20k (gateware/picorv32_20k.cst).
+IO_LOC "flash_cs_n" 60;
+IO_PORT "flash_cs_n" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_LOC "flash_sclk" 59;
+IO_PORT "flash_sclk" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_LOC "flash_mosi" 61;
+IO_PORT "flash_mosi" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_LOC "flash_miso" 62;
+IO_PORT "flash_miso" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_LOC "flash_wp_n" 57;
+IO_PORT "flash_wp_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC "flash_hold_n" 63;
+IO_PORT "flash_hold_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;

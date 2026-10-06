@@ -23,7 +23,7 @@ static int failures = 0;
 /// memory, sentences into latent values, '?', 'T', 'R'.
 class FakeVocoder : public tnv::VocoderTransport {
  public:
-  std::vector<uint32_t> mem = std::vector<uint32_t>(1 << 18, 0);
+  std::vector<uint32_t> mem = std::vector<uint32_t>(1 << 21, 0);  // the 8MB SDRAM
   std::vector<int16_t> latent;
   int frames = 0, sentences = 0, uploads = 0;
   bool program = false, error = false;
@@ -125,8 +125,10 @@ int main() {
   // image header
   tnv::ImageInfo info = tnv::ImageInfo::parse(default_vocoder_image, default_vocoder_image_len);
   CHECK(info.valid);
-  CHECK(info.ops == 102);
-  CHECK(info.max_frames == 448);
+  CHECK(info.has_flow);  // the default image: flow + vocoder
+  CHECK(info.flow_ops == 116);
+  CHECK(info.ops == 116 + 102);
+  CHECK(info.max_frames == 384);
   CHECK(info.z_scale > 0 && info.z_scale < 0.01f);
   CHECK(!tnv::ImageInfo::parse(default_vocoder_image, 100).valid);
 
@@ -143,7 +145,20 @@ int main() {
   CHECK(fpga.uploads == 1);
   CHECK(std::memcmp(fpga.mem.data(), default_vocoder_image, default_vocoder_image_len) == 0);
   CHECK(client.uploadProgramIfNeeded(default_vocoder_image, default_vocoder_image_len));
-  CHECK(fpga.uploads == 1);
+  CHECK(fpga.uploads == 1);  // the same program: no upload
+  CHECK(client.hasFlow());
+  fpga.mem[2] ^= 1;          // the FPGA runs a different program (other header)
+  CHECK(client.uploadProgramIfNeeded(default_vocoder_image, default_vocoder_image_len));
+  CHECK(fpga.uploads == 2);
+
+  // without an image: the program the FPGA already has (e.g. from its flash)
+  tnv::VocoderClient flashed;
+  CHECK(flashed.begin(fpga));
+  CHECK(flashed.useLoadedProgram());
+  CHECK(flashed.zScale() == info.z_scale);
+  CHECK(flashed.maxFrames() == 384);
+  CHECK(flashed.hasFlow());
+  CHECK(fpga.uploads == 2);
   CHECK(client.zScale() == info.z_scale);
 
   // quantization: round(z / scale), clamped like the model

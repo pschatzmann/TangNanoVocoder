@@ -1,17 +1,25 @@
-# Gateware (phase 4)
+# Gateware
 
-**On the board**: a Tang Nano 20K computes sentences at 0.70 x real time at 54 MHz and plays
-them over I2S; the PCM read back is bit-exact with the model (all 205,824 samples of a 4.7s
-sentence). See "Running on the board" for the three problems simulation didn't show.
+The hardware for the Tang Nano 20K (GW2AR-18), in `gateware/`. It does three things:
+- receives a sentence's latent z_p over SPI or UART;
+- runs TinyTTS's flow and vocoder on it from SDRAM;
+- plays the audio over I2S or a PWM pin.
 
-The vocoder's hardware for the Tang Nano 20K (GW2AR-18), in `gateware/`: it receives a
-sentence's latent over SPI or UART, runs the whole vocoder from SDRAM, and plays the audio
-over I2S or a PWM pin. Every block is simulated against the phase 1 model
-([fixed-point-model.md](fixed-point-model.md)), the compute path bit for bit, and the whole
-chip is simulated end to end.
+Every block is simulated against the fixed-point model ([studies.md](studies.md#2-the-vocoder-in-fixed-point),
+[studies.md](studies.md#3-the-flow-in-fixed-point)), the compute path bit for bit, and the whole chip
+is simulated end to end.
+
+**On the board** (54 MHz, built with Gowin EDA: 80% of the logic):
+- **Flow and vocoder:** 0.91 x real time. The PCM read back is bit-exact with the model (all
+  178,688 samples of a 4.05s sentence).
+- **Vocoder alone** (image without the flow): 0.70 x real time. The PCM read back is
+  bit-exact with the model, for example all 205,824 samples of a 4.7s sentence.
+
+"Running on the board" describes the four problems that simulation didn't show.
 
 ```
- SPI / header UART / USB UART
+ SPI / header UART / USB UART      SPI flash (program image at power-up:
+            |                       vocoder_flash_boot, plays a 'P' packet)
             |
       vocoder_link ----------------------------.
    ('P' program, 'S' sentence, '?', 'T', 'R')  |
@@ -22,7 +30,8 @@ chip is simulated end to end.
         DMA -> tile loader (+leaky) -> banks  |        vocoder_playback
         DMA -> weight RAM, parameter RAM      |              |
         conv engine (16 lanes) -> post        |        vocoder_audio_out
-        residual stream <- DMA                |         I2S  /  PWM pin
+        or flow unit (LayerNorm, attention)   |         I2S  /  PWM pin
+        residual stream <- DMA                |
         output buffer -> DMA -----------------'
 ```
 
@@ -31,11 +40,13 @@ chip is simulated end to end.
 | Convolution engine (Conv1d and ConvTranspose1d) | `src/vocoder_conv_engine.v` |
 | Activation tile banks | `src/vocoder_act_banks.v` |
 | Bias, requantize, residual, tanh | `src/vocoder_post.v` |
+| Flow: LayerNorm and attention | `src/vocoder_flow_unit.v` (tables `vocoder_exp2.hex`, `vocoder_rsqrt.hex`) |
 | Scheduler, tile loader, weights, residual stream, output writer | `src/vocoder_core.v` |
 | SDRAM transfers (segments, row-sized bursts) | `src/vocoder_dma.v` |
 | SDRAM controller (from TangNanoGPU), port B arbiter | `src/sdram_ctrl.v`, `src/vocoder_sdram_arb.v` |
 | Link protocol, SPI slave, UARTs | `src/vocoder_link.v`, `vocoder_spi_slave.v`, `vocoder_uart.v` |
 | Playback, audio output (I2S, sigma-delta) | `src/vocoder_playback.v`, `vocoder_audio_out.v` |
+| Program image from the SPI flash at power-up | `src/vocoder_flash_boot.v` |
 | Everything without clocks and pins; replies, slots | `src/vocoder_system.v` |
 | Top level, PLL | `src/vocoder_top.v` |
 | DSP multipliers | `src/vocoder_mul.v` |
@@ -43,9 +54,15 @@ chip is simulated end to end.
 
 ## How a sentence is computed
 
-The quantized vocoder is exported as a **hardware image** (`vocoder_model --export-hw`):
-102 op descriptors, per-channel parameters and weights, and the SDRAM address of every
-activation buffer. The host uploads it once. `vocoder_core` then runs it op by op:
+The quantized model is exported as a **hardware image** (`vocoder_model --flow ...
+--export-hw`; without `--flow`, the vocoder alone). It contains:
+- the op descriptors: 116 for the flow and 102 for the vocoder;
+- per-channel parameters and weights;
+- the SDRAM address of every activation buffer.
+
+It gets into SDRAM in one of two ways: from the board's SPI flash at power-up (see "Program
+image in flash"), or uploaded by the host. `vocoder_core` then runs it op by op. A convolution goes
+like this (LayerNorm and attention are in the next section):
 
 1. read the op's 16-word descriptor and its per-channel parameters (bias, multiplier, shift)
 2. for each group of output channels whose weights fit the 8K-entry weight RAM: load them
@@ -62,12 +79,95 @@ compares its PCM with the model's: bit-exact). The resblock average is a 1x1 con
 over the three resblock outputs read as one tensor with weights 1, so the core only knows
 convolutions.
 
-**SDRAM layout**: activations are channel-major (a channel's frames are consecutive, two
-16-bit values per word), so every load and store is a run of bursts. Buffers are shared by
-liveness; the largest tensor is 1024 values per latent frame. With the default
-`--max-frames 448`, sentences of up to 448 latent frames (5.2s) fit, in 1.97M of the 2.1M
-words. Two latent slots and two PCM slots let the next sentence arrive while one is
-computed, and one be computed while the previous one plays.
+**SDRAM layout**:
+- **Order:** activations are channel-major (a channel's frames are consecutive, two 16-bit
+  values per word), so every load and store is a run of bursts.
+- **Sharing:** buffers are shared by liveness. The largest tensor is 1024 values per latent
+  frame.
+- **Sentence length:**
+  - With the flow, sentences of up to 384 latent frames (4.5s) fit, in 2.08M of the 2.1M
+    words.
+  - The vocoder alone (`--max-frames 448`) takes 448 frames (5.2s) in 1.97M words.
+- **Slots:** two latent slots and two PCM slots. The next sentence can arrive while one is
+  computed, and one can be computed while the previous one plays.
+
+## Program image in flash
+
+The board's 8MB SPI flash holds the bitstream from offset 0 (0.9MB). It also holds the
+program image at offset 0x100000 (1MB), as a record:
+
+| Bytes | |
+|---|---|
+| 4 | `"TNVF"` |
+| 4 | image size in bytes (u32, little endian, a multiple of 4) |
+| n | the image |
+| 1 | checksum: the sum of the image bytes mod 256 |
+
+`tools/tnv.py PORT flash-image [IMAGE]` writes it with `openFPGALoader -f -o 0x100000`.
+The write makes the FPGA reconfigure, and the tool then waits until the board has loaded
+the image.
+
+At power-up, after configuration, `vocoder_flash_boot` loads it:
+1. **Waits** 1ms, until the SDRAM controller has initialized. Writes before that would
+   overflow the link's write FIFO and lose the first words.
+2. **Reads** the record with the flash's Read Data command (03h), SPI mode 0, SCLK = clk/4
+   (13.5MHz).
+3. **Plays** it into the link as a host upload would: `'P'`, the size, the image bytes, the
+   checksum. That is one byte every 33 clocks, about the fastest SPI slave rate, which the
+   link takes. So the link writes it to SDRAM, checks the checksum, and the core reads the
+   header, all as for an upload.
+
+That takes about 1s for the 1.6MB image. While it runs, the host's bytes are ignored and
+the board doesn't answer. Without a record (no magic, or an implausible size), the loader
+does nothing, and the board waits for an upload as before.
+
+The flash's pins (MSPI: CS 60, SCLK 59, MOSI 61, MISO 62, WP 57, HOLD 63) become user I/O
+after configuration, through the Gowin option `use_mspi_as_gpio` (set by
+`build.py --gowin`). These are the pins arduino-tangnano20k uses too. The loader's unit
+test is `gateware/sim/run_flash_boot_test.sh`, against a flash model.
+
+## The flow: LayerNorm and attention
+
+With `vocoder_model --flow ... --export-hw`, the image starts with the flow's 116 ops, then
+the vocoder's. The flow's arithmetic is in [studies.md](studies.md#3-the-flow-in-fixed-point); its
+integer definitions are in `model/src/FlowOps.h`, shared by the model and `HwSim`. The ops
+divide up as follows:
+
+- **Convolutions** (projections, feed-forward, ReLU as leaky ReLU with slope 0) run on the
+  engine like the vocoder's.
+- **Residual adds into the latent** use descriptor flags 28/29: the output or residual
+  address is relative to the current latent slot.
+- **The coupling's channel flips** are folded into the weights.
+- **LayerNorm and attention** are op classes 1 and 2 (descriptor word 0, bits 6-7). They run
+  on `vocoder_flow_unit`, which takes over the bank, weight RAM and parameter read ports
+  while it runs. It writes its results into the output buffer, from where the core stores
+  them as usual.
+
+**LayerNorm** (per tile of up to 256 frames, 32 channels):
+- Three passes per frame: the sum; u = 32x - sum and sum(u^2) on the 36x36 DSP; the outputs.
+- W is normalized by shifting (8 or 1 bits per clock). The leading bits are then the
+  1/sqrt table index and the 16-bit interpolation fraction.
+- Then two multiplies: u x R, and the normalized value x gamma.
+
+**Attention** (one head per run, T <= 496 frames):
+- k and v are loaded transposed into the banks: frame j's 16 channels in one read, at
+  address j and 512 + j.
+- q goes into the weight RAM.
+- The relative-position tables go into the banks at 496 and 1008 (9 rows each).
+
+Per query row, on four lane multipliers:
+
+| Step | Clocks |
+|---|---|
+| q . rel_k for the 9 relative rows, into the row buffer | 36 |
+| scores q . k_j plus the relative score, keeping the maximum | 4 T |
+| exp2 of (score - max) x mult >> shift, from the table | T |
+| r = 2^47 / sum(e), one bit per clock | 48 |
+| per group of 4 channels: weighted sum of v_j and the 9 relative steps, then requantize | 4 (T + 9) |
+
+That is about 9 T + 170 clocks per row. Four lanes rather than 16 keep it small enough to
+fit next to the engine, and cost about 0.07 x real time. The two tables are block RAM ROMs
+holding entry pairs (`lut[i+1]`, `lut[i]`), so one read gives both interpolation points.
 
 ## Hardware image
 
@@ -80,12 +180,23 @@ computed, and one be computed while the previous one plays.
 | | per-channel parameters: bias (int32), then `mult | shift << 16` |
 | | weights, int16, two per word, `[co][kk][ci]` |
 
-Descriptor: word 0 kind (bit 0 transposed), flags (2 residual, 3 output with tanh, 4 input
+Header word 13 describes the flow (bit 0: the image has it; exp table bits << 8, rsqrt
+table bits << 16, score fraction bits << 24), word 14 is the flow's op count.
+
+Descriptor: word 0 kind (bit 0 transposed, op class in bits 6-7: 0 convolution, 1 LayerNorm,
+2 attention), flags (2 residual, 3 output with tanh, 4 input
 is the latent, 5 output is PCM), `cin_log2` (bits 8-10), `stride_log2` (12-14), k (16-20),
 dilation (24-26); 1: cout, padding (8-13), leaky slope Q15 (16-31); 2-7: input, output and
 residual base and plane stride; 8: weights; 9: parameters; 10: input and output rate (frames
 per latent frame); 11: channel group size, tile size (16-31); 12: halo a, b (int16 each):
-a tile's inputs are frames `(t0 + a) >> s` to `(t0 + n - 1 + b) >> s`.
+a tile's inputs are frames `(t0 + a) >> s` to `(t0 + n - 1 + b) >> s`. Flags 28 and 29: the
+output, or the residual, address is relative to the current latent slot (the flow's in-place
+updates of z).
+
+LayerNorm descriptor: word 1 channels (32) and gs (bits 8-13); 11 eps; the parameters are
+gamma and beta per channel. Attention descriptor: word 1 heads, head size (8-15), window
+(16-23); 2 q, 6 k, 7 v; 8 the relative tables (rel_k, then rel_v, 144 values each); 11 and
+12 the score and merge multiplier with their shifts (bits 16-23, 1..47).
 
 ## Link
 
@@ -94,8 +205,8 @@ and the board's USB serial bridge (pins 69/70), UART 8N1 at 921600 baud:
 
 | Host sends | |
 |---|---|
-| `'P'`, u32 bytes, image, checksum | program upload (once; only while nothing is computed or played) |
-| `'S'`, u16 frames, frames x 32 int16, checksum | one sentence: the latent, frame by frame (32 channels), in the image's z scale |
+| `'P'`, u32 bytes, image, checksum | program upload (only while nothing is computed or played; not needed with the image in flash) |
+| `'S'`, u16 frames, frames x 32 int16, checksum | one sentence: the latent (z_p with the flow, z without), frame by frame (32 channels), in the image's z scale |
 | `'?'` | reply: status |
 | `'T'` | reply: status, last sentence's cycles total and with the engine busy (u32 each), its PCM slot (u8) |
 | `'R'`, u32 word address, u16 count | reply: count SDRAM words (4 bytes each), e.g. a sentence's PCM |
@@ -134,35 +245,54 @@ A 1024-sample FIFO played at 44.1 kHz, fed from SDRAM by `vocoder_playback`:
 | `clk_27m` | 4 | in | onboard 27 MHz oscillator |
 | `reset_button` | 88 | in | S1, active high |
 | `leds[5:0]` | 20-15 | out | active low: program loaded, receiving, computing, playing, error, ready |
+| `flash_cs_n`, `flash_sclk`, `flash_mosi`, `flash_miso` | 60, 59, 61, 62 | out, out, out, in | onboard SPI flash (program image at power-up) |
+| `flash_wp_n`, `flash_hold_n` | 57, 63 | out | held high |
 
 ## Building and testing on the board
 
 ```bash
-gateware/build.py               # bitstream: gateware/build/vocoder.fs (about 40 min)
-gateware/build.py --load        # ... and load it into the FPGA's SRAM (until power-off)
-gateware/build.py --flash       # ... or into its flash (kept across power cycles)
-tools/tnv.py /dev/ttyUSB1 upload                      # program image, after every power-up
+gateware/build.py --gowin       # Gowin EDA: gateware/build/vocoder.fs (~15 min)
+gateware/build.py --gowin --load    # ... and load it into the FPGA's SRAM (until power-off)
+gateware/build.py --gowin --flash   # ... or into its flash (kept across power cycles)
+tools/tnv.py /dev/ttyUSB1 flash-image                 # program image into the flash (loaded at power-up)
+tools/tnv.py /dev/ttyUSB1 upload                      # ... or into SDRAM only (until power-off)
 tools/tnv.py /dev/ttyUSB1 say "Hello world!" --verify --wav hello.wav
 tools/tnv.py /dev/ttyUSB1 status | debug | calibrate  # flags, scheduler state, SDRAM read timing
 ```
 
-`build.py` uses the toolchain arduino-tangnano20k installs
-(`~/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/*/bin`) or `$TNV_TOOLS/bin`:
-distribution yosys 0.33 maps block RAMs to cells nextpnr 0.11 can't place.
+The two toolchains:
+- **`--gowin`** runs Gowin EDA's `gw_sh` in batch mode, from `$GOWIN_HOME` or `~/gowin` (see
+  [installation.md](installation.md#fpga-toolchains)). Its project and reports are in
+  `gateware/build/gowin/`.
+- **Without `--gowin`**, `build.py` uses the open-source toolchain that arduino-tangnano20k
+  installs (`~/.arduino15/packages/nanotang/tools/oss-cad-suite-gowin/*/bin`), or
+  `$TNV_TOOLS/bin`. It takes about 40 min, and the current design doesn't fit with it (see
+  "Resources and timing").
 
-`tnv.py say` makes the latent on the PC with `vocoder_model` (TinyTTS: the ESP32's half),
-sends it, waits until the board has computed and played it, and prints the board's compute
-time against the audio's length (from `'T'`). `--verify` reads the PCM back from SDRAM and
-compares it with the model's, sample by sample: bit-exact means the board's output has the
-model's quality (38.9 dB SNR against TinyTTS's float vocoder). `--wav` saves it. The serial
-port is the second of the two the board's USB connection creates (the first is JTAG).
+Loading always uses openFPGALoader.
 
-The same from C++, with the library's own client: `build/tools/host/tnv_speak PORT "text"`,
-and `tests/test_device.cpp` as an automated test (README, "Using it").
+What `tnv.py say` does:
+1. Makes the latent on the PC with `vocoder_model`: z_p, the ESP32's part, or z with
+   `--vocoder-only`.
+2. Sends it and waits until the board has computed and played it.
+3. Prints the board's compute time against the audio's length (from `'T'`).
+
+The options:
+- **`--verify`** reads the PCM back from SDRAM and compares it with the model's, sample by
+  sample. Bit-exact means the board's output has the model's quality.
+- **`--wav`** saves the PCM.
+
+The serial port is the second of the two the board's USB connection creates; the first is
+JTAG.
+
+The same from C++:
+- `build/tools/host/tnv_speak PORT "text"` speaks with the library's client.
+- `tests/test_desktop.cpp` (the Arduino library itself) and `tests/test_device.cpp` are
+  automated tests ([getting-started.md](getting-started.md)).
 
 ## Running on the board
 
-Three things worked in simulation but not on the chip; each is fixed in the RTL and checked
+Four things worked in simulation but not on the chip; each is fixed in the RTL and checked
 on the board:
 
 - **SDRAM burst reads** (`sdram_ctrl.v`, from TangNanoGPU, where bursts were never tested
@@ -175,14 +305,27 @@ on the board:
 - **Signed arrays**: yosys drops the signedness of `reg signed` arrays, so the engine's
   32-bit products were zero-extended into the 36-bit accumulators. Sign extension is
   explicit now.
-- **DSP signed mode**: `MULT18X18` with `ASIGN`/`BSIGN` set multiplied unsigned on 11 of
-  the 16 lanes (depending on placement). All DSPs now run unsigned, and the signed product
-  is recovered arithmetically (`vocoder_mul.v`).
+- **DSP signed mode** (seen with the open-source toolchain): with `ASIGN`/`BSIGN` tied to
+  constant 1, `MULT18X18` multiplied unsigned on 11 of the 16 lanes (depending on
+  placement). With the sign inputs driven from
+  a register (0 for one clock after configuration, then 1), signed mode works on all of them
+  (`gateware/test/dsp16_test_top.v`: 16 multipliers, 305 cases each). `vocoder_mul.v` does
+  that. An earlier workaround ran the DSPs unsigned with an arithmetic correction, which
+  cost about 110 LUTs per multiplier.
 
-Hardware test bitstreams for the pieces: `gateware/test/dsp_test_top.v` (multipliers,
-`tools/dsp_test.py`) and `gateware/test/mem_test_top.v` (activation banks,
-`tools/mem_test.py`). The end-to-end test is `tests/test_device.cpp` (`ctest -L device`
-with `-DTNV_DEVICE_PORT=/dev/ttyUSB1`, see the README).
+- **Timing in the flow unit**: an earlier build of the flow passed Gowin's timing analysis
+  (54.0 MHz). On the board, though, a few attention rows came out 1-8 LSB off at any
+  sentence length, while the RTL simulation was bit-exact. Pipeline registers on the
+  flow unit's tightest paths (the softmax weights from the DSP, the exp interpolation)
+  made the board bit-exact. The cause was a path with no real margin, not the logic.
+
+Hardware test bitstreams for the pieces:
+- `gateware/test/dsp_test_top.v` and `dsp16_test_top.v`: the multipliers (`tools/dsp_test.py`).
+- `gateware/test/mem_test_top.v`: the activation banks (`tools/mem_test.py`).
+
+The end-to-end tests are `tests/test_desktop.cpp` and `tests/test_device.cpp`
+(`ctest -L device` with `-DTNV_DEVICE_PORT=/dev/ttyUSB1`, see
+[getting-started.md](getting-started.md)).
 
 ## Simulation
 
@@ -191,7 +334,16 @@ gateware/sim/run_tests.sh                     # I/O blocks, and engine + post pe
 FRAMES=4 gateware/sim/run_system_test.sh      # the whole chip on one sentence (about an hour)
 MAX_TILE=32 FRAMES=4 gateware/sim/run_system_test.sh   # ... with many tiles per op
 OPS=1 gateware/sim/run_gate_test.sh rtl       # port-only test, the first OPS ops
+gateware/sim/run_flow_unit_test.sh            # LayerNorm and attention unit (seconds)
+gateware/sim/run_flash_boot_test.sh           # the flash loader against a flash model (seconds)
+FRAMES=8 gateware/sim/run_flow_system_test.sh # the flow's 116 ops on the whole chip (about 30 min)
+OPS=K gateware/sim/run_flow_system_test.sh    # ... only the first K ops, checking op K's output
 ```
+
+The flow unit test runs the first LayerNorm and attention (both heads) of a sentence with
+the model's golden vectors (`vocoder_model --flow-dump`). By default that is 40 frames of
+"Hello world!"; set `FRAMES` and `TEXT` for others (passed at 349 frames). The flow system test
+compares z after the flow (the latent slot) with the model's.
 
 Needs Icarus Verilog, which runs the whole chip at only about 700 cycles per second. The
 layer tests compare engine + post with the model on 17 layers (every layer type and both
@@ -201,12 +353,34 @@ played against the model's, and reads `'T'`. `vocoder_model --check-hw` runs the
 schedule in C++ in seconds (`--max-tile` forces many tiles per op).
 
 None of these catch how the chip differs from the simulator (see "Running on the board").
-`run_gate_test.sh gate` was meant to, on yosys's netlist, but yosys ships no simulation
-models for the block RAM cells it now uses (`DPB`, `DPX9B`, `SDPX9B`), so it doesn't run.
+`run_gate_test.sh gate` was meant to, on yosys's netlist. It doesn't run, because yosys ships
+no simulation models for the block RAM cells it now uses (`DPB`, `DPX9B`, `SDPX9B`). Gowin's
+netlist with Gowin's simulation library (`IDE/simlib`) is the candidate for that now.
 
 ## Resources and timing
 
-nextpnr-himbaechel, whole design at 54 MHz:
+**With the flow, Gowin EDA** (`build.py --gowin`), 54 MHz:
+
+| | Used | Of |
+|---|---|---|
+| Logic (LUT, ALU) | 16,583 | 20,736 (80%) |
+| CLS | 9,231 | 10,368 (90%) |
+| Registers | 6,626 | 15,915 (42%) |
+| Block RAM | 41 | 46 |
+| DSP | 20.25 | 24 |
+
+Fmax 54.1 MHz: just enough, and placement-dependent (one build without the last fixes
+reached only 51.7 MHz). These paths needed a pipeline register to get there:
+- the flow unit's product, rounding shift and clamp, its softmax weights (DSP -> lane), and
+  its exp interpolation;
+- the core's group-size x plane multiply, and the tile loader's leaky-ReLU slope;
+- the engine's phase setup.
+
+The same design with yosys + nextpnr needs about 17.1k LUT4 plus 5.4k ALU. Both share the
+same logic slots, so it doesn't place.
+
+**Vocoder only**, nextpnr-himbaechel, at 54 MHz (before the flow, with the old DSP
+workaround):
 
 | | Used | Of |
 |---|---|---|
@@ -225,6 +399,13 @@ setting (`build.py --mhz 64.8`) has margin too - not tried on the board yet.
 
 ## Speed
 
+**With the flow, measured on the board: 0.91 x real time** at 54 MHz for flow and vocoder
+together (4.05s of speech in 3.68s, the engine busy 80% of it). `vocoder_model --flow ...
+--check-hw` estimated 0.91 x too. Attention is the flow's largest part, at about 9 T clocks
+per query row and head.
+
+The vocoder alone:
+
 `vocoder_model --check-hw` estimates the cycles a sentence takes, following the core's
 sequence (each SDRAM burst as its length plus 13 cycles, the engine as max(k x cin, 16)
 cycles per block of 16 outputs, refresh). For the evaluation sentences: **0.72 x real time
@@ -235,18 +416,20 @@ computing yet - the obvious next speedup). **Measured on the board: 0.70 x real 
 took 1,952,599 cycles (71% with the engine busy) against an estimate of 1.98M, so the
 estimate is within a few percent. The board reports its own count with `'T'`.
 
-The first sound comes after one sentence's compute time (the vocoder needs the whole
-latent; the ESP32's flow needs the whole sentence anyway), then playback runs while the
-next sentence is computed.
+The first sound comes after one sentence's compute time: the flow attends over the whole
+sentence, so it needs the whole latent. After that, playback runs while the next sentence
+is computed.
 
 ## Open
 
+- **Timing margin with the flow**: 54.1 MHz against 54 MHz in Gowin's analysis; another
+  placement can miss.
 - **Not run on hardware yet**: the SPI link, the header UART (pins 25/26) and the PWM pin
   (all simulated; the USB serial port and I2S run on the board), and the 64.8 MHz build.
 - **SDRAM read timing margin**: two of the six sample points read cleanly, measured on one
   board at room temperature. The bitstream uses the one in the middle; it does not
   calibrate itself at startup (the `'L'`/`'D'` commands would allow it).
-- **Program image in flash**: it is uploaded after every power-up (484 KB, 5s over the
-  USB serial port); storing it in the FPGA's flash and loading it at boot would remove that.
-- **Speed**: tile loads and output writes don't overlap with computing (23% of the time).
-- **Sentence length**: at most 448 latent frames (5.2s) with the default SDRAM layout.
+- **Speed**: tile loads and output writes don't overlap with computing (23% of the
+  vocoder's time).
+- **Sentence length**: at most 384 latent frames (4.5s) with the flow, 448 (5.2s) without.
+  SDRAM is 99% used with the flow; packed weights would free about 0.5MB.

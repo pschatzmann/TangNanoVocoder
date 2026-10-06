@@ -9,7 +9,7 @@
 namespace tnv {
 
 /// What one step of the layer program does. The FPGA's layer scheduler runs
-/// the same list (see docs/fixed-point-model.md).
+/// the same list (see docs/studies.md).
 enum class OpKind : uint8_t {
   kConv = 0,           ///< Conv1d, "same" padding, stride 1, optional dilation
   kConvTranspose = 1,  ///< ConvTranspose1d (upsampling), computed as a gather

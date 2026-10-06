@@ -30,8 +30,9 @@ with open(os.path.join(out, "pcm.hex"), "w") as f:
 EOF
 
 cd "$here"
-iverilog -g2012 -DTANH_FILE="\"$src/vocoder_tanh.hex\"" -o "$out/tb_system.vvp" tb_system.v sdram_model.v \
-  "$src"/vocoder_system.v "$src"/vocoder_core.v "$src"/vocoder_dma.v "$src"/vocoder_conv_engine.v \
+iverilog -g2012 -DTANH_FILE="\"$src/vocoder_tanh.hex\"" -DEXP_FILE="\"$src/vocoder_exp2.hex\"" \
+  -DRSQRT_FILE="\"$src/vocoder_rsqrt.hex\"" -o "$out/tb_system.vvp" tb_system.v sdram_model.v \
+  "$src"/vocoder_system.v "$src"/vocoder_flash_boot.v "$src"/vocoder_core.v "$src"/vocoder_flow_unit.v "$src"/vocoder_dma.v "$src"/vocoder_conv_engine.v \
   "$src"/vocoder_post.v "$src"/vocoder_act_banks.v "$src"/vocoder_mul.v "$src"/vocoder_link.v \
   "$src"/vocoder_uart.v "$src"/vocoder_spi_slave.v "$src"/vocoder_audio_out.v "$src"/vocoder_playback.v \
   "$src"/vocoder_sdram_arb.v "$src"/sdram_ctrl.v

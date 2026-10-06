@@ -22,7 +22,11 @@ module vocoder_system #(
     parameter SAMPLE_RATE = 44_100,
     parameter INIT_US     = 200,
     parameter TANH_FILE   = "vocoder_tanh.hex",
-    parameter RD_LAT      = 1     // SDRAM read sample point after reset (sdram_ctrl.v rd_lat); 'L' changes it
+    parameter EXP_FILE    = "vocoder_exp2.hex",
+    parameter RSQRT_FILE  = "vocoder_rsqrt.hex",
+    parameter RD_LAT      = 1,    // SDRAM read sample point after reset (sdram_ctrl.v rd_lat); 'L' changes it
+    parameter FLASH_BOOT  = 1,    // load the program image from the SPI flash at power-up (vocoder_flash_boot.v)
+    parameter FLASH_START_US = 1000   // after the SDRAM's init (INIT_US): the link's writes must not wait for it
 ) (
     input  wire        clk,
     input  wire        clk_sdram,   // clk, 180 degrees
@@ -39,6 +43,9 @@ module vocoder_system #(
     output wire        pwm_out,
 
     output wire [5:0]  state_leds,  // active high: program, receiving, computing, playing, error, ready
+
+    output wire        flash_cs_n, flash_sclk, flash_mosi,
+    input  wire        flash_miso,
 
     inout  wire [31:0] SDRAM_DQ,
     output wire [10:0] SDRAM_A,
@@ -58,11 +65,30 @@ module vocoder_system #(
   vocoder_uart_rx #(.CLK_HZ(CLK_HZ), .BAUD(BAUD)) u_brx (
       .clk(clk), .rst_n(rst_n), .rx(usb_uart_rx), .valid(b_valid), .data(b_data), .frame_error());
 
-  // one byte stream; the interface of the last byte gets the replies
-  wire       rx_valid = s_valid | u_valid | b_valid;
-  wire [7:0] rx_data  = s_valid ? s_data : (u_valid ? u_data : b_data);
+  // the program image from the flash at power-up, as a 'P' packet
+  wire       f_active, f_valid;
+  wire [7:0] f_data;
+  generate
+    if (FLASH_BOOT) begin : fboot
+      vocoder_flash_boot #(.CLK_HZ(CLK_HZ), .START_US(FLASH_START_US)) u_fboot (
+          .clk(clk), .rst_n(rst_n), .active(f_active), .out_valid(f_valid), .out_data(f_data),
+          .flash_cs_n(flash_cs_n), .flash_sclk(flash_sclk), .flash_mosi(flash_mosi), .flash_miso(flash_miso));
+    end else begin : nofboot
+      assign f_active = 1'b0;
+      assign f_valid = 1'b0;
+      assign f_data = 8'd0;
+      assign flash_cs_n = 1'b1;
+      assign flash_sclk = 1'b0;
+      assign flash_mosi = 1'b0;
+    end
+  endgenerate
+
+  // one byte stream; the interface of the last byte gets the replies. While
+  // the flash loads the program, the host's bytes are ignored.
+  wire       rx_valid = f_active ? f_valid : (s_valid | u_valid | b_valid);
+  wire [7:0] rx_data  = f_active ? f_data : (s_valid ? s_data : (u_valid ? u_data : b_data));
   reg  [1:0] last_if;  // 0 SPI, 1 header UART, 2 USB UART
-  always @(posedge clk) if (rx_valid) last_if <= s_valid ? 2'd0 : (u_valid ? 2'd1 : 2'd2);
+  always @(posedge clk) if (rx_valid && !f_active) last_if <= s_valid ? 2'd0 : (u_valid ? 2'd1 : 2'd2);
 
   // ---------------------------------------------------------------- slots
   reg [1:0]  lat_full, pcm_full;
@@ -87,7 +113,7 @@ module vocoder_system #(
   wire [3:0]  c_wbe;
   wire [31:0] rdata;
 
-  vocoder_core #(.TANH_FILE(TANH_FILE)) u_core (
+  vocoder_core #(.TANH_FILE(TANH_FILE), .EXP_FILE(EXP_FILE), .RSQRT_FILE(RSQRT_FILE)) u_core (
       .clk(clk), .rst_n(rst_n),
       .hdr_load(prog_done), .hdr_valid(hdr_valid), .max_frames(max_frames),
       .lat_base0(lat_base0), .lat_base1(lat_base1), .lat_plane(lat_plane),

@@ -36,13 +36,14 @@ with open(os.path.join(out, "expect.hex"), "w") as e:
 print(f"checking op {ops - 1} ({name}): {ch} channels x {fr} frames")
 PY
 
-srcs="vocoder_system.v vocoder_core.v vocoder_dma.v vocoder_conv_engine.v vocoder_post.v vocoder_act_banks.v
+srcs="vocoder_system.v vocoder_flash_boot.v vocoder_core.v vocoder_flow_unit.v vocoder_dma.v vocoder_conv_engine.v vocoder_post.v vocoder_act_banks.v
   vocoder_mul.v vocoder_link.v vocoder_uart.v vocoder_spi_slave.v vocoder_audio_out.v vocoder_playback.v
   vocoder_sdram_arb.v sdram_ctrl.v"
 srcs=$(echo $srcs)  # one line: yosys takes a newline as the end of a command
 cd "$here"
 if [ "$mode" != gate ]; then
-  iverilog -g2012 -DTANH_FILE="\"$src/vocoder_tanh.hex\"" -o "$out/rtl.vvp" tb_gate.v sdram_model.v \
+  iverilog -g2012 -DTANH_FILE="\"$src/vocoder_tanh.hex\"" -DEXP_FILE="\"$src/vocoder_exp2.hex\"" \
+    -DRSQRT_FILE="\"$src/vocoder_rsqrt.hex\"" -DGATE_DIR="\"build/gate\"" -o "$out/rtl.vvp" tb_gate.v sdram_model.v \
     $(for f in $srcs; do echo "$src/$f"; done)
   echo "== RTL"; vvp -n "$out/rtl.vvp" | grep -v -E "finish called|readmemh"
 fi

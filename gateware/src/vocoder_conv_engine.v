@@ -44,7 +44,7 @@ module vocoder_conv_engine #(
     input  wire                     cfg_transposed,
     input  wire [2:0]               cfg_cin_log2,
     input  wire [6:0]               cfg_co0,          // first output channel
-    input  wire [6:0]               cfg_cocount,      // number of output channels
+    input  wire [7:0]               cfg_cocount,      // number of output channels (up to 128)
     input  wire [4:0]               cfg_k,
     input  wire [2:0]               cfg_dil,
     input  wire [2:0]               cfg_stride_log2,  // transposed only
@@ -87,7 +87,7 @@ module vocoder_conv_engine #(
   reg [4:0]             tap, n_taps;
   reg [4:0]             kk_w;       // weight tap index
   reg [6:0]             ci;
-  wire [6:0]            co_end = cfg_co0 + cfg_cocount;
+  wire [7:0]            co_end = {1'b0, cfg_co0} + cfg_cocount;
 
   wire [7:0]  cin       = 8'd1 << cfg_cin_log2;
   wire [4:0]  stride    = 5'd1 << cfg_stride_log2;
@@ -117,7 +117,7 @@ module vocoder_conv_engine #(
       if (cfg_transposed && ({1'b0, r} + 5'd1) < stride) begin
         r <= r + 4'd1;
         state <= S_SETUP;
-      end else if (co + 7'd1 < co_end) begin
+      end else if ({1'b0, co} + 8'd1 < co_end) begin
         co <= co + 7'd1;
         r <= 4'd0;
         w_base <= w_base + layer_row;
@@ -217,11 +217,27 @@ module vocoder_conv_engine #(
     end
   endgenerate
 
+  // the phase's frame range, registered in S_SETUP's first clock (timing:
+  // the arithmetic from the configuration doesn't fit one clock with the rest)
+  reg                  su_wait;
+  reg                  su_empty;
+  reg signed [SW-1:0]  su_lo, su_hi1, su_tend, su_f0;
+  reg [4:0]            su_taps;
+  always @(posedge clk) begin
+    su_empty <= q_lo > q_hi;
+    su_lo <= q_lo;
+    su_hi1 <= q_hi + 1;
+    su_tend <= s_tend;
+    su_f0 <= s_t0 - s_pad;
+    su_taps <= taps_t;
+  end
+
   integer j;
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       state <= S_IDLE;
       busy <= 1'b0;
+      su_wait <= 1'b0;
       a_valid <= 1'b0;
       b_valid <= 1'b0;
       c_valid <= 1'b0;
@@ -236,24 +252,26 @@ module vocoder_conv_engine #(
           w_base <= {WABITS{1'b0}};
           state <= S_SETUP;
         end
-        S_SETUP: begin
+        S_SETUP: if (!su_wait) su_wait <= 1'b1;  // first clock: su_* registered
+        else begin
+          su_wait <= 1'b0;
           tap <= 5'd0;
           ci <= 7'd0;
           if (cfg_transposed) begin
-            if (q_lo > q_hi) begin
+            if (su_empty) begin
               next_phase;  // no outputs in this phase
             end else begin
-              blk <= q_lo;
-              blk_end <= q_hi + 1;
-              f_tap <= q_lo;
-              n_taps <= taps_t;
+              blk <= su_lo;
+              blk_end <= su_hi1;
+              f_tap <= su_lo;
+              n_taps <= su_taps;
               kk_w <= {1'b0, r};
               state <= S_RUN;
             end
           end else begin
             blk <= s_t0;
-            blk_end <= s_tend;
-            f_tap <= s_t0 - s_pad;
+            blk_end <= su_tend;
+            f_tap <= su_f0;
             n_taps <= cfg_k;
             kk_w <= 5'd0;
             state <= (cfg_tcount == 0 || cfg_cocount == 0) ? S_FLUSH : S_RUN;

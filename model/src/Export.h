@@ -40,7 +40,7 @@ class LeWriter {
 }  // namespace detail
 
 /// Writes a quantized program in the format documented in
-/// docs/fixed-point-model.md ("Program file"): what the gateware's layer
+/// docs/studies.md ("Program file"): what the gateware's layer
 /// scheduler and its weight streaming read from SDRAM/flash.
 inline void exportProgram(const Program& p, const std::string& path) {
   detail::LeWriter w(path);

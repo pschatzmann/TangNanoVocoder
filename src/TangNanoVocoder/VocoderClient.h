@@ -25,12 +25,23 @@ struct ImageInfo {
   uint32_t pcm_base[2] = {0, 0};
   uint32_t words = 0;        ///< image size in 32-bit words
   float z_scale = 0;         ///< latent quantization: value = round(z / z_scale)
+  bool has_flow = false;     ///< the FPGA runs the flow too: sentences are z_p, not z
+  uint32_t flow_ops = 0;     ///< of ops, the flow's (they come first)
+  uint32_t header[16] = {};  ///< the raw header words
 
   static ImageInfo parse(const uint8_t* image, size_t len) {
     ImageInfo info;
     if (image == nullptr || len < 64) return info;
     uint32_t h[16];
     std::memcpy(h, image, sizeof(h));  // little endian, as the image is
+    info = fromHeader(h);
+    info.valid = info.valid && info.words * 4 == len;
+    return info;
+  }
+
+  /// From the 16 header words alone (e.g. read back from the FPGA's SDRAM).
+  static ImageInfo fromHeader(const uint32_t* h) {
+    ImageInfo info;
     if (h[0] != 0x48564E54u || h[1] != 1) return info;
     info.ops = h[2];
     info.max_frames = h[4];
@@ -38,7 +49,10 @@ struct ImageInfo {
     info.pcm_base[1] = h[9];
     info.words = h[10];
     std::memcpy(&info.z_scale, &h[11], 4);
-    info.valid = info.words * 4 == len;
+    info.has_flow = (h[13] & 1) != 0;
+    info.flow_ops = info.has_flow ? h[14] : 0;
+    std::memcpy(info.header, h, sizeof(info.header));
+    info.valid = info.words >= 16;
     return info;
   }
 };
@@ -86,9 +100,29 @@ class VocoderClient {
  public:
   using ProgressFn = std::function<void(size_t done, size_t total)>;
 
-  bool begin(VocoderTransport& transport) {
+  /// Finds the vocoder. Waits up to `timeout_ms` for an answer: after
+  /// power-up the FPGA loads its program from flash first (about 1s) and
+  /// doesn't answer meanwhile.
+  bool begin(VocoderTransport& transport, uint32_t timeout_ms = 3000) {
     t_ = &transport;
-    return status() >= 0;
+    uint32_t start = t_->millis();
+    while (true) {
+      int s = status();
+      if (s >= 0 && !(s & kReceiving)) return true;
+      if (t_->millis() - start > timeout_ms) return s >= 0;
+      t_->delay(20);
+    }
+  }
+
+  /// Uses the program the FPGA already runs (loaded from its flash at
+  /// power-up, or uploaded before): reads its header back from SDRAM, for
+  /// zScale(), maxFrames() and hasFlow(). False if it has none.
+  bool useLoadedProgram() {
+    if (!hasProgram()) return false;
+    uint32_t h[16];
+    if (!readWords(0, h, 16)) return false;
+    info_ = ImageInfo::fromHeader(h);
+    return info_.valid;
   }
 
   /// The status byte, or -1 when nothing answers.
@@ -149,12 +183,18 @@ class VocoderClient {
     return hasProgram();
   }
 
-  /// Uploads the image unless the vocoder already has a program. The image
-  /// is still parsed, for z_scale() and maxFrames().
+  /// Uploads the image unless the vocoder already has this program: one
+  /// with the same header (read back from SDRAM word 0). The image is
+  /// parsed either way, for zScale(), maxFrames() and hasFlow().
   bool uploadProgramIfNeeded(const uint8_t* image, size_t len, ProgressFn progress = nullptr) {
     info_ = ImageInfo::parse(image, len);
     if (!info_.valid) return false;
-    if (hasProgram()) return true;
+    if (hasProgram() && !isBusy()) {
+      uint32_t loaded[16];
+      if (readWords(0, loaded, 16) && std::memcmp(loaded, info_.header, sizeof(loaded)) == 0) return true;
+    } else if (hasProgram()) {
+      return true;  // busy: it plays what was sent for this program
+    }
     return uploadProgram(image, len, progress);
   }
 
@@ -203,17 +243,27 @@ class VocoderClient {
   }
 
   /// Reads SDRAM words ('R'), e.g. the last sentence's PCM at
-  /// imageInfo().pcm_base[stats.pcm_slot]. One word per request, so it is
-  /// safe over SPI at any clock.
-  bool readWords(uint32_t addr, uint32_t* out, size_t count) {
-    for (size_t i = 0; i < count; i++) {
+  /// imageInfo().pcm_base[stats.pcm_slot]. `burst` words per request: 1 is
+  /// safe over SPI at any clock; over a UART up to 65535 work (faster).
+  bool readWords(uint32_t addr, uint32_t* out, size_t count, size_t burst = 1) {
+    if (burst < 1) burst = 1;
+    if (burst > 65535) burst = 65535;
+    uint8_t r[4 * 64];
+    for (size_t i = 0; i < count;) {
+      size_t n = count - i < burst ? count - i : burst;
       t_->flushInput();
       uint32_t a = addr + (uint32_t)i;
-      uint8_t cmd[7] = {'R', (uint8_t)a, (uint8_t)(a >> 8), (uint8_t)(a >> 16), (uint8_t)(a >> 24), 1, 0};
+      uint8_t cmd[7] = {'R', (uint8_t)a, (uint8_t)(a >> 8), (uint8_t)(a >> 16), (uint8_t)(a >> 24), (uint8_t)n,
+                        (uint8_t)(n >> 8)};
       t_->write(cmd, 7);
-      uint8_t r[4];
-      if (!t_->read(r, 4, 200)) return false;
-      out[i] = r[0] | r[1] << 8 | r[2] << 16 | (uint32_t)r[3] << 24;
+      for (size_t done = 0; done < n;) {
+        size_t m = n - done < 64 ? n - done : 64;
+        if (!t_->read(r, 4 * m, 500)) return false;
+        for (size_t k = 0; k < m; k++)
+          out[i + done + k] = r[4 * k] | r[4 * k + 1] << 8 | r[4 * k + 2] << 16 | (uint32_t)r[4 * k + 3] << 24;
+        done += m;
+      }
+      i += n;
     }
     return true;
   }
@@ -229,6 +279,8 @@ class VocoderClient {
   const ImageInfo& imageInfo() const { return info_; }
   float zScale() const { return info_.z_scale; }
   int maxFrames() const { return (int)info_.max_frames; }
+  /// The program runs the flow too: sentences are the flow's input z_p.
+  bool hasFlow() const { return info_.has_flow; }
 
  protected:
   VocoderTransport* t_ = nullptr;

@@ -66,7 +66,8 @@ int main(int argc, char** argv) {
 
   int frames = 0;
   for (int i = 2; i < argc; i++) {
-    tnv::Latent latent = tnv::latentFromText(core, argv[i]);
+    // a program with the flow takes z_p (the FPGA runs the flow), else z
+    tnv::Latent latent = vocoder.hasFlow() ? tnv::latentPrior(core, argv[i]) : tnv::latentFromText(core, argv[i]);
     frames = latent.z.rows();
     std::vector<int16_t> zq = tnv::quantizeLatent(latent.z, vocoder.zScale());
     if (!vocoder.sendSentence(zq.data(), frames)) {

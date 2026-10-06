@@ -16,7 +16,7 @@
 module tb_system;
   localparam CLK_HZ = 54_000_000, BAUD = 3_375_000;  // 16 clocks per bit
   localparam integer BIT_NS = 1_000_000_000 / BAUD;
-  localparam IMAGE_WORDS = 1 << 18, MAX_SENTENCE = 4096, MAX_PCM = 1 << 16;
+  localparam IMAGE_WORDS = 1 << 20, MAX_SENTENCE = 4096, MAX_PCM = 1 << 16;
 
   reg clk = 1'b0;
   always #9.259 clk = ~clk;
@@ -31,13 +31,14 @@ module tb_system;
   wire usb_tx, miso, bclk, ws, din, pwm, utx;
   wire [5:0] leds;
 
-  vocoder_system #(.CLK_HZ(CLK_HZ), .BAUD(BAUD), .INIT_US(2), .TANH_FILE(`TANH_FILE)) dut (
+  vocoder_system #(.CLK_HZ(CLK_HZ), .BAUD(BAUD), .INIT_US(2), .FLASH_BOOT(0), .TANH_FILE(`TANH_FILE)) dut (
       .clk(clk), .clk_sdram(~clk), .rst_n(rst_n),
       .spi_sclk(1'b0), .spi_mosi(1'b0), .spi_cs_n(1'b1), .spi_miso(miso),
       .uart_rx(1'b1), .uart_tx(utx), .usb_uart_rx(usb_rx), .usb_uart_tx(usb_tx),
       .i2s_bclk(bclk), .i2s_ws(ws), .i2s_din(din), .pwm_out(pwm), .state_leds(leds),
       .SDRAM_DQ(dq), .SDRAM_A(sa), .SDRAM_BA(ba), .SDRAM_nCS(ncs), .SDRAM_nWE(nwe), .SDRAM_nRAS(nras),
-      .SDRAM_nCAS(ncas), .SDRAM_CLK(sclk_sd), .SDRAM_CKE(cke), .SDRAM_DQM(dqm));
+      .SDRAM_nCAS(ncas), .SDRAM_CLK(sclk_sd), .SDRAM_CKE(cke), .SDRAM_DQM(dqm),
+      .flash_cs_n(), .flash_sclk(), .flash_mosi(), .flash_miso(1'b1));  // flash boot off (FLASH_BOOT 0)
 
   sdram_model #(.CAS(2), .MEM_AW(21)) u_mem (
       .SDRAM_DQ(dq), .SDRAM_A(sa), .SDRAM_BA(ba), .SDRAM_nCS(ncs), .SDRAM_nWE(nwe), .SDRAM_nRAS(nras),

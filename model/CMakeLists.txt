@@ -1,4 +1,4 @@
-# Phase 1: fixed-point vocoder model on the host (see ../docs/fixed-point-model.md).
+# Phase 1: fixed-point vocoder model on the host (see ../docs/studies.md).
 #
 #   cmake -S model -B model/build && cmake --build model/build -j
 #   ./model/build/vocoder_model --help

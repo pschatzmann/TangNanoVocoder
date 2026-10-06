@@ -14,12 +14,20 @@
 //         into the output buffer
 //         write the output buffer to SDRAM, channel plane by channel plane
 //
+// The flow's LayerNorm and attention ops (descriptor word 0 bits 7:6 = 1, 2)
+// run on vocoder_flow_unit: LayerNorm in tiles of up to 256 frames loaded
+// like a 32-channel convolution input; attention per head with k and v
+// loaded transposed into the banks, q into the weight RAM, and the relative
+// tables into the unit.
+//
 // SDRAM traffic goes through one sdram_ctrl B-style master port (vocoder_dma).
 // Header: read when `hdr_load` pulses (after a program upload).
 `timescale 1ns / 1ps
 
 module vocoder_core #(
-    parameter TANH_FILE = "vocoder_tanh.hex"
+    parameter TANH_FILE = "vocoder_tanh.hex",
+    parameter EXP_FILE = "vocoder_exp2.hex",
+    parameter RSQRT_FILE = "vocoder_rsqrt.hex"
 ) (
     input  wire        clk,
     input  wire        rst_n,
@@ -75,6 +83,15 @@ module vocoder_core #(
   wire [15:0] dsc_tile       = d[11][31:16];
   wire signed [15:0] dsc_a   = d[12][15:0];
   wire signed [15:0] dsc_b   = d[12][31:16];
+  wire [1:0]  op_class       = d[0][7:6];   // 0 convolution, 1 LayerNorm, 2 attention
+  wire        dsc_out_latent = d[0][28];
+  wire        dsc_res_latent = d[0][29];
+  // per class: output buffer row stride, input layout, leaky slope
+  wire [12:0] tile_n   = op_class == 2'd1 ? 13'd256 : (op_class == 2'd2 ? 13'd512 : dsc_tile[12:0]);
+  wire [2:0]  cin_log2 = op_class == 2'd1 ? 3'd5 : dsc_cin_log2;
+  wire [15:0] lr_eff_d = op_class == 2'd0 ? dsc_lr : 16'd32768;
+  reg  [15:0] lr_eff;   // registered (timing): fixed during an op, used by the tile loader
+  always @(posedge clk) lr_eff <= lr_eff_d;
 
   function [3:0] log2_rate(input [15:0] r);
     integer i;
@@ -94,12 +111,15 @@ module vocoder_core #(
   reg [7:0]        co0, cnt;
   reg [TBITS-1:0]  t0, n;
   reg [20:0]       w_next, grp_res, grp_out;
+  reg [20:0]       res_step, out_step;  // cnt x plane (below)
   reg signed [SW-1:0] lo, hi;
 
   // ---------------------------------------------------------------- DMA
-  localparam M_HDR = 3'd0, M_DESC = 3'd1, M_PARAM = 3'd2, M_WGT = 3'd3, M_TILE = 3'd4, M_RES = 3'd5,
-             M_WRITE = 3'd6;
-  reg [2:0]  mode;
+  localparam M_HDR = 4'd0, M_DESC = 4'd1, M_PARAM = 4'd2, M_WGT = 4'd3, M_TILE = 4'd4, M_RES = 4'd5,
+             M_WRITE = 4'd6, M_KT = 4'd7, M_VT = 4'd8, M_Q = 4'd9, M_REL = 4'd10;
+  reg [3:0]  mode;
+  wire       mode_tile = mode == M_TILE || mode == M_KT || mode == M_VT || mode == M_Q;
+  wire       mode_trans = mode == M_KT || mode == M_VT;
   reg        dma_start;
   reg        dma_we;
   reg [20:0] dma_first, dma_stride;
@@ -164,13 +184,15 @@ module vocoder_core #(
   end
 
   // ---------------------------------------------------------------- parameter RAMs
-  reg [31:0] bias_ram [0:127];
-  reg [21:0] ms_ram [0:127];
+  (* ram_style = "block" *) reg [31:0] bias_ram [0:127];
+  (* ram_style = "block" *) reg [31:0] ms_ram [0:127];   // conv: shift << 16 | mult; LayerNorm: beta
   always @(posedge clk)
     if (m_rvalid && mode == M_PARAM) begin
       if (!rx_total[0]) bias_ram[rx_total[7:1]] <= m_rdata;
-      else ms_ram[rx_total[7:1]] <= {m_rdata[21:16], m_rdata[15:0]};
+      else ms_ram[rx_total[7:1]] <= m_rdata;
     end
+
+  reg [TBITS:0] tl_frame;      // tile loader: frame of the low half of the current word
 
   // ---------------------------------------------------------------- weight RAM (even / odd values)
   (* ram_style = "block" *) reg [15:0] w_even [0:(1 << (WABITS - 1)) - 1];
@@ -179,21 +201,33 @@ module vocoder_core #(
   wire [WABITS-1:0] e_w_addr;
   reg  [15:0]       w_even_q, w_odd_q;
   reg               w_sel;
+  wire              fu_q_en;
+  wire [11:0]       fu_q_addr;
+  // q for attention: q_i[c] in bank (i + c) & 1 at word i * 8 + c / 2; a word
+  // from SDRAM holds frames i (even) and i + 1 of channel c = rx_seg
+  wire [TBITS:0]    q_i = tl_frame;
+  wire [3:0]        q_c = rx_seg[3:0];
+  wire [11:0]       q_a0 = {q_i[8:0], 3'd0} | {9'd0, q_c[3:1]};
+  wire [11:0]       q_a1 = q_a0 + 12'd8;
+  wire              q_in1 = $signed({1'b0, tl_frame}) + 1 <= hi;
+  wire [11:0]       we_addr = mode == M_Q ? (q_c[0] ? q_a1 : q_a0) : rx_total[WABITS-2:0];
+  wire [11:0]       wo_addr = mode == M_Q ? (q_c[0] ? q_a0 : q_a1) : rx_total[WABITS-2:0];
+  wire [15:0]       we_data = mode == M_Q ? (q_c[0] ? m_rdata[31:16] : m_rdata[15:0]) : m_rdata[15:0];
+  wire [15:0]       wo_data = mode == M_Q ? (q_c[0] ? m_rdata[15:0] : m_rdata[31:16]) : m_rdata[31:16];
+  wire              we_en = m_rvalid && (mode == M_WGT || (mode == M_Q && (!q_c[0] || q_in1)));
+  wire              wo_en = m_rvalid && (mode == M_WGT || (mode == M_Q && (q_c[0] || q_in1)));
   always @(posedge clk) begin
-    if (m_rvalid && mode == M_WGT) begin
-      w_even[rx_total[WABITS-2:0]] <= m_rdata[15:0];
-      w_odd[rx_total[WABITS-2:0]] <= m_rdata[31:16];
-    end
-    if (e_w_en) begin
-      w_even_q <= w_even[e_w_addr[WABITS-1:1]];
-      w_odd_q <= w_odd[e_w_addr[WABITS-1:1]];
+    if (we_en) w_even[we_addr] <= we_data;
+    if (wo_en) w_odd[wo_addr] <= wo_data;
+    if (e_w_en || fu_q_en) begin
+      w_even_q <= w_even[fu_q_en ? fu_q_addr : e_w_addr[WABITS-1:1]];
+      w_odd_q <= w_odd[fu_q_en ? fu_q_addr : e_w_addr[WABITS-1:1]];
       w_sel <= e_w_addr[0];
     end
   end
   wire [15:0] e_w_data = w_sel ? w_odd_q : w_even_q;
 
   // ---------------------------------------------------------------- tile loader (+ leaky ReLU)
-  reg [TBITS:0] tl_frame;      // frame of the low half of the current word
   reg           l1_v0, l1_v1;  // stage 1: values and their bank addresses
   reg signed [15:0] l1_x0, l1_x1;
   reg [3:0]     l1_b0, l1_b1;
@@ -202,46 +236,58 @@ module vocoder_core #(
   wire signed [SW-1:0] tl_l1 = tl_l0 + 1;
   wire tl_in0 = $signed({1'b0, tl_frame}) >= lo && $signed({1'b0, tl_frame}) <= hi;
   wire tl_in1 = $signed({1'b0, tl_frame}) + 1 >= lo && $signed({1'b0, tl_frame}) + 1 <= hi;
-  wire [ABITS-1:0] tl_row0 = (tl_l0 >>> 4) << dsc_cin_log2;
-  wire [ABITS-1:0] tl_row1 = (tl_l1 >>> 4) << dsc_cin_log2;
+  wire [ABITS-1:0] tl_row0 = (tl_l0 >>> 4) << cin_log2;
+  wire [ABITS-1:0] tl_row1 = (tl_l1 >>> 4) << cin_log2;
+  // attention: frame j, channel c in bank (c + 8 (j & 1)) % 16 at (512 for v) + j
+  wire [ABITS-1:0] tt_base = mode == M_VT ? 10'd512 : 10'd0;
+  // relative tables (M_REL, 144 words): value 2w, 2w + 1 of row r = w / 8 in
+  // banks 2 (w % 8), +1, at 496 + r (rel_k, rows 0..8) or 1008 + r - 9 (rel_v)
+  wire [4:0]       rel_row = rx_total[7:3];
+  wire [ABITS-1:0] rel_addr = rel_row < 5'd9 ? 10'd496 + rel_row : 10'd999 + rel_row;
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       l1_v0 <= 1'b0;
       l1_v1 <= 1'b0;
     end else begin
-      l1_v0 <= m_rvalid && mode == M_TILE && tl_in0;
-      l1_v1 <= m_rvalid && mode == M_TILE && tl_in1;
+      l1_v0 <= m_rvalid && (((mode == M_TILE || mode_trans) && tl_in0) || mode == M_REL);
+      l1_v1 <= m_rvalid && (((mode == M_TILE || mode_trans) && tl_in1) || mode == M_REL);
       l1_x0 <= m_rdata[15:0];
       l1_x1 <= m_rdata[31:16];
-      l1_b0 <= tl_l0[3:0];
-      l1_b1 <= tl_l1[3:0];
-      l1_a0 <= tl_row0 | {{(ABITS-8){1'b0}}, rx_seg};
-      l1_a1 <= tl_row1 | {{(ABITS-8){1'b0}}, rx_seg};
+      l1_b0 <= mode == M_REL ? {rx_total[2:0], 1'b0} : mode_trans ? rx_seg[3:0] : tl_l0[3:0];
+      l1_b1 <= mode == M_REL ? {rx_total[2:0], 1'b1} : mode_trans ? rx_seg[3:0] + 4'd8 : tl_l1[3:0];
+      l1_a0 <= mode == M_REL ? rel_addr : mode_trans ? tt_base + tl_frame[ABITS-1:0] :
+               tl_row0 | {{(ABITS-8){1'b0}}, rx_seg};
+      l1_a1 <= mode == M_REL ? rel_addr : mode_trans ? tt_base + tl_frame[ABITS-1:0] + 1'b1 :
+               tl_row1 | {{(ABITS-8){1'b0}}, rx_seg};
       if (dma_start) tl_frame <= {1'b0, lo[TBITS-1:0]} & ~{{TBITS{1'b0}}, 1'b1};
-      else if (m_rvalid && mode == M_TILE) begin
+      else if (m_rvalid && mode_tile) begin
         if (rx_word == dma_words - 16'd1) tl_frame <= {1'b0, lo[TBITS-1:0]} & ~{{TBITS{1'b0}}, 1'b1};
         else tl_frame <= tl_frame + 2;
       end
     end
   end
   wire signed [35:0] lk_p0, lk_p1;
-  vocoder_mul18 u_lk0 (.clk(clk), .a({{2{l1_x0[15]}}, l1_x0}), .b({2'b00, dsc_lr}), .p(lk_p0));
-  vocoder_mul18 u_lk1 (.clk(clk), .a({{2{l1_x1[15]}}, l1_x1}), .b({2'b00, dsc_lr}), .p(lk_p1));
+  vocoder_mul18 u_lk0 (.clk(clk), .a({{2{l1_x0[15]}}, l1_x0}), .b({2'b00, lr_eff}), .p(lk_p0));
+  vocoder_mul18 u_lk1 (.clk(clk), .a({{2{l1_x1[15]}}, l1_x1}), .b({2'b00, lr_eff}), .p(lk_p1));
   wire signed [35:0] lk_r0 = (lk_p0 + 36'sd16384) >>> 15;
   wire signed [35:0] lk_r1 = (lk_p1 + 36'sd16384) >>> 15;
-  wire [15:0] lk_y0 = (l1_x0[15] && dsc_lr != 16'd32768) ? lk_r0[15:0] : l1_x0;
-  wire [15:0] lk_y1 = (l1_x1[15] && dsc_lr != 16'd32768) ? lk_r1[15:0] : l1_x1;
+  wire [15:0] lk_y0 = (l1_x0[15] && lr_eff != 16'd32768) ? lk_r0[15:0] : l1_x0;
+  wire [15:0] lk_y1 = (l1_x1[15] && lr_eff != 16'd32768) ? lk_r1[15:0] : l1_x1;
 
   // ---------------------------------------------------------------- banks, engine, post
   wire              act_en;
   wire [16*ABITS-1:0] act_addr;
   wire [16*16-1:0]  act_data;
+  wire              fu_bank_en;
+  wire [ABITS-1:0]  fu_bank_addr;
+  reg               fu_mode;   // the flow unit owns the bank, weight and parameter read ports
   vocoder_act_banks #(.LANES(16), .ABITS(ABITS)) u_banks (
       .clk(clk),
       .wr_en(l1_v0), .wr_bank(l1_b0), .wr_addr(l1_a0), .wr_data(lk_y0),
       .wr2_en(l1_v1), .wr2_bank(l1_b1), .wr2_addr(l1_a1), .wr2_data(lk_y1),
-      .rd_en(act_en), .rd_addr(act_addr), .rd_data(act_data));
+      .rd_en(fu_mode ? fu_bank_en : act_en), .rd_addr(fu_mode ? {16{fu_bank_addr}} : act_addr),
+      .rd_data(act_data));
 
   reg               eng_start;
   wire              eng_busy;
@@ -251,7 +297,7 @@ module vocoder_core #(
   wire signed [ACCW-1:0] e_acc;
   vocoder_conv_engine #(.ABITS(ABITS), .WABITS(WABITS), .TBITS(TBITS), .ACCW(ACCW)) u_engine (
       .clk(clk), .rst_n(rst_n), .start(eng_start), .busy(eng_busy),
-      .cfg_transposed(dsc_transposed), .cfg_cin_log2(dsc_cin_log2), .cfg_co0(co0[6:0]), .cfg_cocount(cnt[6:0]),
+      .cfg_transposed(dsc_transposed), .cfg_cin_log2(dsc_cin_log2), .cfg_co0(co0[6:0]), .cfg_cocount(cnt),
       .cfg_k(dsc_k), .cfg_dil(dsc_dil), .cfg_stride_log2(dsc_s), .cfg_pad(dsc_pad),
       .cfg_tin(tin), .cfg_tile_base(lo[TBITS-1:0]), .cfg_t0(t0), .cfg_tcount(n),
       .act_en(act_en), .act_addr(act_addr), .act_data(act_data),
@@ -293,15 +339,32 @@ module vocoder_core #(
     end
   end
 
-  wire [6:0] prm_co;
-  reg signed [31:0] prm_bias;
-  reg [15:0] prm_mult;
-  reg [5:0]  prm_shift;
+  wire [6:0] prm_co, fu_prm_c;
+  reg signed [31:0] prm_bias, prm_word2;
+  wire [15:0] prm_mult = prm_word2[15:0];
+  wire [5:0]  prm_shift = prm_word2[21:16];
+  wire [6:0] prm_rd = fu_mode ? fu_prm_c : prm_co;
   always @(posedge clk) begin
-    prm_bias <= bias_ram[prm_co];
-    prm_mult <= ms_ram[prm_co][15:0];
-    prm_shift <= ms_ram[prm_co][21:16];
+    prm_bias <= bias_ram[prm_rd];
+    prm_word2 <= ms_ram[prm_rd];
   end
+
+  // ---------------------------------------------------------------- flow unit (LayerNorm, attention)
+  reg               fu_ln_start, fu_att_start;
+  wire              fu_busy;
+  wire              fu_out_valid;
+  wire [5:0]        fu_out_c;
+  wire [8:0]        fu_out_t;
+  wire signed [15:0] fu_out_y;
+  vocoder_flow_unit #(.EXP_FILE(EXP_FILE), .RSQRT_FILE(RSQRT_FILE)) u_flow (
+      .clk(clk), .rst_n(rst_n), .ln_start(fu_ln_start), .att_start(fu_att_start), .busy(fu_busy),
+      .ln_frames(n[8:0]), .ln_eps(d[11]), .ln_gs(d[1][13:8]), .prm_c(fu_prm_c), .prm_g(prm_bias),
+      .prm_b(prm_word2),
+      .att_frames(T[8:0]), .score_mult(d[11][15:0]), .score_shift(d[11][23:16]), .merge_mult(d[12][15:0]),
+      .merge_shift(d[12][23:16]),
+      .bank_en(fu_bank_en), .bank_addr(fu_bank_addr), .bank_data(act_data),
+      .q_en(fu_q_en), .q_addr(fu_q_addr), .q_even(w_even_q), .q_odd(w_odd_q),
+      .out_valid(fu_out_valid), .out_c(fu_out_c), .out_t(fu_out_t), .out_y(fu_out_y));
 
   wire              p_valid;
   wire [6:0]        p_co;
@@ -318,12 +381,17 @@ module vocoder_core #(
   (* ram_style = "block" *) reg [15:0] o_odd  [0:4095];
   reg [12:0] ob_base;   // (co - co0) * tile
   reg [6:0]  ob_co;
-  wire [12:0] ob_idx_new = (p_co != ob_co) ? ob_base + dsc_tile[12:0] : ob_base;
-  wire [12:0] ob_idx = ob_idx_new + (p_t - t0);
+  wire [12:0] ob_idx_new = (p_co != ob_co) ? ob_base + tile_n : ob_base;
+  wire [12:0] ob_idx_p = ob_idx_new + (p_t - t0);
+  // flow unit: channel c, frame t of the tile at c * tile + t (tile 256 or 512)
+  wire [12:0] ob_idx_f = (op_class == 2'd1 ? {fu_out_c[4:0], 8'd0} : {fu_out_c[3:0], 9'd0}) | {4'd0, fu_out_t};
+  wire        ob_we = p_valid || fu_out_valid;
+  wire [12:0] ob_idx = fu_out_valid ? ob_idx_f : ob_idx_p;
+  wire [15:0] ob_val = fu_out_valid ? fu_out_y : p_y;
   always @(posedge clk) begin
-    if (p_valid) begin
-      if (ob_idx[0]) o_odd[ob_idx[12:1]] <= p_y;
-      else o_even[ob_idx[12:1]] <= p_y;
+    if (ob_we) begin
+      if (ob_idx[0]) o_odd[ob_idx[12:1]] <= ob_val;
+      else o_even[ob_idx[12:1]] <= ob_val;
     end
   end
 
@@ -344,7 +412,11 @@ module vocoder_core #(
   // ---------------------------------------------------------------- scheduler
   localparam S_IDLE = 5'd0, S_HDR = 5'd1, S_DESC = 5'd2, S_DECODE = 5'd3, S_PARAM = 5'd4,
              S_WGT = 5'd5, S_TPREP = 5'd6, S_TILE = 5'd7, S_COMP = 5'd8, S_DRAIN = 5'd9, S_WRITE = 5'd10,
-             S_NEXT = 5'd11, S_WAIT = 5'd12, S_NPREP = 5'd13;
+             S_NEXT = 5'd11, S_WAIT = 5'd12, S_NPREP = 5'd13,
+             S_LN_PREP = 5'd14, S_LN_RUN = 5'd15, S_LN_NEXT = 5'd16,
+             S_AT_HEAD = 5'd17, S_AT_V = 5'd18, S_AT_Q = 5'd19, S_AT_RUN = 5'd20, S_AT_NEXT = 5'd21;
+  reg       head;
+  reg       fu_started;
   reg [4:0] state, after;
   assign dbg = {3'd0, state, op_i, n_ops, op_table[15:0]};
   reg [3:0] drain;
@@ -354,7 +426,7 @@ module vocoder_core #(
   wire signed [SW-1:0] hi_raw = ($signed({2'b00, t0}) + $signed({2'b00, n}) - 1 + dsc_b) >>> dsc_s;
   wire signed [SW-1:0] s_tin = $signed({2'b00, tin});
 
-  task kick(input [2:0] m, input w, input [20:0] f, input [20:0] st, input [7:0] ns, input [15:0] wd,
+  task kick(input [3:0] m, input w, input [20:0] f, input [20:0] st, input [7:0] ns, input [15:0] wd,
             input [8:0] mb, input [4:0] next_state);
     begin
       mode <= m;
@@ -381,26 +453,32 @@ module vocoder_core #(
       dma_kicked <= 1'b0;
       eng_start <= 1'b0;
       eng_started <= 1'b0;
+      fu_started <= 1'b0;
+      fu_mode <= 1'b0;
+      fu_ln_start <= 1'b0;
+      fu_att_start <= 1'b0;
       mode <= M_HDR;
       run_cycles <= 32'd0;
       mac_cycles <= 32'd0;
     end else begin
       dma_start <= 1'b0;
       eng_start <= 1'b0;
+      fu_ln_start <= 1'b0;
+      fu_att_start <= 1'b0;
       done <= 1'b0;
       if (busy) begin
         run_cycles <= run_cycles + 32'd1;
-        if (eng_busy) mac_cycles <= mac_cycles + 32'd1;
+        if (eng_busy || fu_busy) mac_cycles <= mac_cycles + 32'd1;
       end
       if (p_valid && p_co != ob_co) begin
-        ob_base <= ob_base + dsc_tile[12:0];
+        ob_base <= ob_base + tile_n;
         ob_co <= p_co;
       end
       if (m_wpull) begin
         wr_idx <= wr_idx + 12'd1;
         if (wr_left == 16'd1) begin  // next segment: next output channel's row of the buffer
-          wr_seg_idx <= wr_seg_idx + dsc_tile[12:1];
-          wr_idx <= wr_seg_idx + dsc_tile[12:1];
+          wr_seg_idx <= wr_seg_idx + tile_n[12:1];
+          wr_idx <= wr_seg_idx + tile_n[12:1];
           wr_left <= seg_words_out;
         end else begin
           wr_left <= wr_left - 16'd1;
@@ -439,16 +517,92 @@ module vocoder_core #(
           tin <= {7'd0, T} << log2_rate(d[10][15:0]);
           tout <= {7'd0, T} << log2_rate(d[10][31:16]);
           in_base <= d[2][20:0] + (dsc_in_latent ? lat_off : 21'd0);
-          out_base <= d[4][20:0] + (dsc_out_pcm ? pcm_off : 21'd0);
+          out_base <= d[4][20:0] + (dsc_out_pcm ? pcm_off : 21'd0) + (dsc_out_latent ? lat_off : 21'd0);
           kick(M_PARAM, 1'b0, d[9][20:0], 21'd0, 8'd1, {7'd0, dsc_cout, 1'b0}, 9'd256, S_PARAM);
         end
         S_PARAM: begin  // parameters loaded: first group
           co0 <= 8'd0;
           cnt <= dsc_group < dsc_cout ? dsc_group : dsc_cout;
           w_next <= d[8][20:0];
-          grp_res <= d[6][20:0];
+          grp_res <= d[6][20:0] + (dsc_res_latent ? lat_off : 21'd0);
           grp_out <= out_base;
-          state <= S_WGT;
+          t0 <= {TBITS{1'b0}};
+          head <= 1'b0;
+          if (op_class == 2'd1) state <= S_LN_PREP;
+          else if (op_class == 2'd2)  // relative tables first, into the banks
+            kick(M_REL, 1'b0, d[8][20:0], 21'd0, 8'd1, 16'd144, 9'd256, S_AT_HEAD);
+          else state <= S_WGT;
+        end
+
+        // ------------------------------------------------ LayerNorm: tiles of up to 256 frames
+        S_LN_PREP: begin
+          n <= (tout - t0 < 20'd256) ? tout - t0 : 20'd256;
+          lo <= $signed({2'b00, t0});
+          hi <= $signed({2'b00, t0}) + ((tout - t0 < 20'd256) ? $signed({2'b00, tout - t0}) : 22'sd256) - 1;
+          state <= S_LN_RUN;
+          fu_started <= 1'b0;
+        end
+        S_LN_RUN: begin
+          if (!fu_started) begin  // load the tile, 32 channel planes
+            fu_started <= 1'b1;
+            kick(M_TILE, 1'b0, in_base + {1'b0, lo[TBITS:1]}, dsc_in_plane, 8'd32,
+                 hi[TBITS:1] - lo[TBITS:1] + 16'd1, 9'd256, S_LN_RUN);
+          end else if (!fu_mode) begin
+            fu_mode <= 1'b1;
+            fu_ln_start <= 1'b1;
+          end else if (!fu_ln_start && !fu_busy) begin
+            fu_mode <= 1'b0;
+            fu_started <= 1'b0;
+            wr_idx <= 12'd0;
+            wr_seg_idx <= 12'd0;
+            wr_left <= seg_words_out;
+            kick(M_WRITE, 1'b1, out_base + {1'b0, t0[TBITS-1:1]}, dsc_out_plane, 8'd32, seg_words_out, 9'd256,
+                 S_LN_NEXT);
+          end
+        end
+        S_LN_NEXT: begin
+          if (t0 + n < tout) begin
+            t0 <= t0 + n;
+            state <= S_LN_PREP;
+          end else begin
+            op_i <= op_i + 8'd1;
+            state <= S_NEXT;
+          end
+        end
+
+        // ------------------------------------------------ attention, per head
+        S_AT_HEAD: begin  // k, transposed into the banks at 0
+          lo <= {SW{1'b0}};
+          hi <= $signed({2'b00, tout}) - 1;
+          n <= tout;
+          kick(M_KT, 1'b0, d[6][20:0] + (head ? dsc_in_plane << 4 : 21'd0), dsc_in_plane, 8'd16,
+               tout[16:1] + {15'd0, tout[0]}, 9'd256, S_AT_V);
+        end
+        S_AT_V: kick(M_VT, 1'b0, d[7][20:0] + (head ? dsc_in_plane << 4 : 21'd0), dsc_in_plane, 8'd16,
+                     tout[16:1] + {15'd0, tout[0]}, 9'd256, S_AT_Q);
+        S_AT_Q: kick(M_Q, 1'b0, in_base + (head ? dsc_in_plane << 4 : 21'd0), dsc_in_plane, 8'd16,
+                     tout[16:1] + {15'd0, tout[0]}, 9'd256, S_AT_RUN);
+        S_AT_RUN: begin
+          if (!fu_mode) begin
+            fu_mode <= 1'b1;
+            fu_att_start <= 1'b1;
+          end else if (!fu_att_start && !fu_busy) begin
+            fu_mode <= 1'b0;
+            wr_idx <= 12'd0;
+            wr_seg_idx <= 12'd0;
+            wr_left <= seg_words_out;
+            kick(M_WRITE, 1'b1, out_base + (head ? dsc_out_plane << 4 : 21'd0), dsc_out_plane, 8'd16,
+                 seg_words_out, 9'd256, S_AT_NEXT);
+          end
+        end
+        S_AT_NEXT: begin
+          if (!head) begin
+            head <= 1'b1;
+            state <= S_AT_HEAD;
+          end else begin
+            op_i <= op_i + 8'd1;
+            state <= S_NEXT;
+          end
         end
         S_WGT: begin
           // cnt * k * cin / 2 words
@@ -465,7 +619,7 @@ module vocoder_core #(
         end
         S_TILE: begin
           // one segment per input channel: words (lo >> 1) .. (hi >> 1)
-          kick(M_TILE, 1'b0, in_base + {1'b0, lo[TBITS:1]}, dsc_in_plane, 8'd1 << dsc_cin_log2,
+          kick(M_TILE, 1'b0, in_base + {1'b0, lo[TBITS:1]}, dsc_in_plane, 8'd1 << cin_log2,
                hi[TBITS:1] - lo[TBITS:1] + 16'd1, 9'd256, S_COMP);
         end
         S_COMP: begin
@@ -508,8 +662,8 @@ module vocoder_core #(
           end else if ({1'b0, co0} + cnt < {1'b0, dsc_cout}) begin
             co0 <= co0 + cnt;
             cnt <= (dsc_cout - (co0 + cnt) < dsc_group) ? dsc_cout - (co0 + cnt) : dsc_group;
-            grp_res <= grp_res + mul_plane(cnt, dsc_res_plane);
-            grp_out <= grp_out + mul_plane(cnt, dsc_out_plane);
+            grp_res <= grp_res + res_step;
+            grp_out <= grp_out + out_step;
             state <= S_WGT;
           end else begin
             op_i <= op_i + 8'd1;
@@ -522,13 +676,20 @@ module vocoder_core #(
   end
 
 
-  // group size x plane (at most 64 x 2^21): shift-add over the 7 bits of cnt
+  // group size x plane (at most 64 x 2^21): shift-add over the 8 bits of
+  // cnt as a tree of three adder levels, registered - cnt and the planes are
+  // stable for many clocks before S_NPREP uses the products
   function [20:0] mul_plane(input [7:0] c, input [20:0] p);
+    reg [20:0] t [0:7];
     integer j;
     begin
-      mul_plane = 21'd0;
-      for (j = 0; j < 8; j = j + 1) if (c[j]) mul_plane = mul_plane + (p << j);
+      for (j = 0; j < 8; j = j + 1) t[j] = c[j] ? p << j : 21'd0;
+      mul_plane = ((t[0] + t[1]) + (t[2] + t[3])) + ((t[4] + t[5]) + (t[6] + t[7]));
     end
   endfunction
+  always @(posedge clk) begin
+    res_step <= mul_plane(cnt, dsc_res_plane);
+    out_step <= mul_plane(cnt, dsc_out_plane);
+  end
 
 endmodule

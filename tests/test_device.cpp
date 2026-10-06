@@ -81,7 +81,9 @@ int main(int argc, char** argv) {
   for (const char* text : sentences) {
     // noise seed 200: what vocoder_model uses for its (first) sentence, so the
     // last one can be compared with the model's PCM
-    tnv::Latent latent = tnv::latentFromText(core, text, 0, 0.667f, 1.0f, 200);
+    // a program with the flow takes z_p (the FPGA runs the flow), else z
+    tnv::Latent latent = vocoder.hasFlow() ? tnv::latentPrior(core, text, 0, 0.667f, 1.0f, 200)
+                                           : tnv::latentFromText(core, text, 0, 0.667f, 1.0f, 200);
     frames = latent.z.rows();
     std::vector<int16_t> zq = tnv::quantizeLatent(latent.z, vocoder.zScale());
     bool sent = vocoder.sendSentence(zq.data(), frames);
@@ -103,7 +105,8 @@ int main(int argc, char** argv) {
   // the last sentence's PCM against the model's (first 2048 samples)
   if (argc > 2) {
     std::string pcm_path = "test_device_pcm.bin";
-    std::string cmd = std::string(argv[2]) + " --text \"" + sentences[2] + "\" --pcm-out " + pcm_path +
+    std::string cmd = std::string(argv[2]) + (vocoder.hasFlow() ? " --flow --flow-wbits 12 --flow-headroom 1.25" : "") +
+                      " --text \"" + sentences[2] + "\" --pcm-out " + pcm_path +
                       " > /dev/null 2>&1";
     if (std::system(cmd.c_str()) == 0) {
       std::vector<uint8_t> want = readFile(pcm_path);
