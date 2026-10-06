@@ -5,29 +5,14 @@
 [![CMake](https://img.shields.io/badge/CMake-supported-blue?logo=cmake&logoColor=white)](CMakeLists.txt)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue)](https://opensource.org/licenses/Apache-2.0)
 
-[TinyTTS](https://github.com/pschatzmann/TinyTTS) is a proof of concept: neural text to speech
+[TinyTTS](https://github.com/pschatzmann/TinyTTS) is a proof of concept: __neural text to speech__
 running entirely on a microcontroller. It is a small VITS-style model with 1.6M parameters,
-covering the whole pipeline:
-- G2P: text to phonemes, with a pronunciation dictionary and a small model for unknown words;
-- a text encoder and a duration predictor;
-- a normalizing flow;
-- a HiFi-GAN vocoder that produces 44.1kHz audio.
-
-It is all hand-written C++ with INT8 weights. It works, and the speech is good, but it is far
-too slow:
-
-| Platform | `speak("Hello world!")` (about 1.5s of audio) |
-|---|---|
-| ESP32-S3, optimized | about 34s |
-| ESP32-P4, optimized | about 28s |
-| [Sipeed Tang Nano 20K](https://wiki.sipeed.com/hardware/en/tang/tang-nano-20k/nano-20k.html), picorv32 at 54MHz + on-chip INT8 engine, fully optimized | about 34 minutes |
-
-The conclusion: **neural speech on microcontrollers is too slow**, by a factor of about 20
+covering the whole pipeline. The conclusion: **neural speech on microcontrollers is too slow**, by a factor of about 20
 on the fastest ESP32. Most of the work is the vocoder: about 440 million multiply-accumulates
 per second of audio, about 90% of the model's total. The flow is most of the rest. No
 microcontroller CPU does that in real time.
 
-This project moves the heavy part into hardware. A Sipeed Tang Nano 20K FPGA runs the flow
+This project moves the heavy part into hardware. A [Sipeed Tang Nano 20K](https://wiki.sipeed.com/hardware/en/tang/tang-nano-20k/nano-20k.html) FPGA runs the flow
 and the vocoder, fed by its own DMA from SDRAM rather than by a CPU.
 
 <img src="https://wiki.sipeed.com/hardware/zh/tang/tang-nano-20k/assets/nano_20k/tang_nano_20k_3920_top.png" alt="Sipeed Tang Nano 20K" width="300">
